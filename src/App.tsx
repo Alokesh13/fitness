@@ -4,9 +4,9 @@ import {
   Pie, PieChart, RadialBar, RadialBarChart, ResponsiveContainer, Tooltip, XAxis, YAxis
 } from "recharts";
 import {
-  Activity, Apple, Award, Beef, Calendar, Check, Droplets, Edit2, Flame,
-  Footprints, Heart, Moon, Plus, RotateCcw, Save, Target, Trash2, TrendingUp,
-  Utensils, Watch, Waves, X, Zap
+  Activity, Apple, Award, Beef, Calendar, Check, Droplets, Dumbbell, Edit2, Flame,
+  Footprints, Heart, Moon, Plus, RotateCcw, Save, Sun, Target, Trash2, TrendingUp,
+  Utensils, Watch, X, Zap
 } from "lucide-react";
 import AICoach from "./AICoach";
 
@@ -25,6 +25,17 @@ type Workout = {
   title: string;
 };
 
+type Exercise = {
+  id: string;
+  name: string;
+  reps: number;
+  sets: number;
+  duration: number; // seconds per set
+  calories: number;
+  time: string;
+  notes?: string;
+};
+
 type Food = {
   id: string;
   name: string;
@@ -38,19 +49,27 @@ type Food = {
 
 type WaterLog = { id: string; amount: number; time: string };
 
+type SleepLog = {
+  id: string;
+  bedTime: string;
+  wakeTime: string;
+  hours: number;
+  isNap: boolean;
+};
+
 type DayJournal = {
   date: string;
   workouts: Workout[];
+  exercises: Exercise[];
   foods: Food[];
   water: WaterLog[];
-  sleep?: number;
-  mood?: number;
+  sleepLogs: SleepLog[];
   finished?: boolean;
   rating?: number;
 };
 
 /* ---------- Helpers ---------- */
-const STORAGE_KEY = "vitalytix-journal-v2";
+const STORAGE_KEY = "alokesh-fitness-v1";
 const fmt = (n: number, d = 1) => n.toLocaleString(undefined, { maximumFractionDigits: d, minimumFractionDigits: d });
 const uid = () => Math.random().toString(36).slice(2, 9);
 const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -65,6 +84,18 @@ const calcPace = (minutes: number, km: number) => {
   if (!km) return "0:00";
   const s = (minutes * 60) / km;
   return `${Math.floor(s / 60)}:${Math.round(s % 60).toString().padStart(2, "0")}`;
+};
+const calcSleepHours = (bed: string, wake: string) => {
+  const [bh, bm] = bed.split(":").map(Number);
+  const [wh, wm] = wake.split(":").map(Number);
+  let diff = (wh * 60 + wm) - (bh * 60 + bm);
+  if (diff < 0) diff += 24 * 60;
+  return Number((diff / 60).toFixed(1));
+};
+const calcExerciseCalories = (name: string, reps: number, sets: number) => {
+  const calPerRep: Record<string, number> = { "push-up": 0.5, "pull-up": 1, "squat": 0.4, "jumping-jack": 0.2, "burpee": 1.5, plank: 0.1, "jaw-exercise": 0.05, situp: 0.3, lunge: 0.4, "arm-circle": 0.1 };
+  const key = Object.keys(calPerRep).find(k => name.toLowerCase().includes(k)) || "push-up";
+  return Math.round(calPerRep[key] * reps * sets);
 };
 
 /* ---------- Animated Counter ---------- */
@@ -90,8 +121,6 @@ function AnimatedNumber({ value, duration = 800 }: { value: number; duration?: n
   return <>{display < 100 ? display.toFixed(1) : Math.round(display).toLocaleString()}</>;
 }
 
-/* ---------- No demo data — start fresh ---------- */
-
 /* ========== APP ========== */
 export default function App() {
   const [journal, setJournal] = useState<Record<string, DayJournal>>(() => {
@@ -100,7 +129,7 @@ export default function App() {
     return {};
   });
   const [date, setDate] = useState(todayISO());
-  const [showAdd, setShowAdd] = useState<"workout" | "food" | "water" | null>(null);
+  const [showAdd, setShowAdd] = useState<"workout" | "food" | "water" | "sleep" | "exercise" | null>(null);
   const [editingWorkout, setEditingWorkout] = useState<Workout | null>(null);
   const [showFinish, setShowFinish] = useState(false);
   const [coachOpen, setCoachOpen] = useState(false);
@@ -113,7 +142,7 @@ export default function App() {
     setCoachNotif(event + ":" + notifCounter.current);
   }, []);
 
-  const day = journal[date] ?? { date, workouts: [], foods: [], water: [] };
+  const day = journal[date] ?? { date, workouts: [], exercises: [], foods: [], water: [], sleepLogs: [] };
 
   useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(journal)); }, [journal]);
 
@@ -121,11 +150,13 @@ export default function App() {
     const runKm = day.workouts.filter(w => w.type === "run" || w.type === "hike").reduce((a, b) => a + b.km, 0);
     const walkKm = day.workouts.filter(w => w.type === "walk" || w.type === "recovery").reduce((a, b) => a + b.km, 0);
     const steps = day.workouts.reduce((a, b) => a + b.steps, 0);
-    const caloriesOut = day.workouts.reduce((a, b) => a + b.calories, 0);
+    const caloriesOut = day.workouts.reduce((a, b) => a + b.calories, 0) + day.exercises.reduce((a, b) => a + b.calories, 0);
     const caloriesIn = day.foods.reduce((a, b) => a + b.calories, 0);
     const waterMl = day.water.reduce((a, b) => a + b.amount, 0);
     const protein = day.foods.reduce((a, b) => a + b.protein, 0);
-    return { runKm, walkKm, totalKm: runKm + walkKm, steps, caloriesOut, caloriesIn, waterMl, protein };
+    const sleepHrs = day.sleepLogs.filter(s => !s.isNap).reduce((a, b) => a + b.hours, 0);
+    const napHrs = day.sleepLogs.filter(s => s.isNap).reduce((a, b) => a + b.hours, 0);
+    return { runKm, walkKm, totalKm: runKm + walkKm, steps, caloriesOut, caloriesIn, waterMl, protein, sleepHrs, napHrs };
   }, [day]);
 
   const last14 = useMemo(() => Array.from({ length: 14 }, (_, i) => {
@@ -158,10 +189,24 @@ export default function App() {
     setEditingWorkout(null);
   };
   const deleteWorkout = (id: string) => { setJournal(j => ({ ...j, [date]: { ...day, workouts: day.workouts.filter(w => w.id !== id) } })); };
-  const addFood = (f: Omit<Food, "id">) => { setJournal(j => ({ ...j, [date]: { ...day, foods: [...day.foods, { ...f, id: uid() }] } })); setShowAdd(null); setTimeout(() => triggerCoachNotif("food"), 600); };
+
+  const addExercise = (e: Omit<Exercise, "id" | "calories">) => {
+    const ex: Exercise = { ...e, id: uid(), calories: calcExerciseCalories(e.name, e.reps, e.sets) };
+    setJournal(j => ({ ...j, [date]: { ...day, exercises: [ex, ...day.exercises] } }));
+    setShowAdd(null);
+    setTimeout(() => triggerCoachNotif("exercise"), 600);
+  };
+  const deleteExercise = (id: string) => { setJournal(j => ({ ...j, [date]: { ...day, exercises: day.exercises.filter(e => e.id !== id) } })); };
+
+  const addFood = (f: Omit<Food, "id">) => {
+    setJournal(j => ({ ...j, [date]: { ...day, foods: [...day.foods, { ...f, id: uid() }] } }));
+    setTimeout(() => triggerCoachNotif("food"), 600);
+  };
+  const deleteFood = (id: string) => { setJournal(j => ({ ...j, [date]: { ...day, foods: day.foods.filter(f => f.id !== id) } })); };
+
   const addWater = useCallback((amount: number) => {
     setJournal(j => {
-      const d = j[date] ?? { date, workouts: [], foods: [], water: [] };
+      const d = j[date] ?? { date, workouts: [], exercises: [], foods: [], water: [], sleepLogs: [] };
       return { ...j, [date]: { ...d, water: [...d.water, { id: uid(), amount, time: timeNow() }] } };
     });
     setShowAdd(null);
@@ -169,13 +214,24 @@ export default function App() {
     setTimeout(() => setWaterPop(false), 1200);
     setTimeout(() => triggerCoachNotif("water"), 600);
   }, [date, triggerCoachNotif]);
+  const deleteWater = (id: string) => { setJournal(j => ({ ...j, [date]: { ...day, water: day.water.filter(w => w.id !== id) } })); };
+
+  const addSleep = (s: Omit<SleepLog, "id" | "hours">) => {
+    const hours = calcSleepHours(s.bedTime, s.wakeTime);
+    setJournal(j => ({ ...j, [date]: { ...day, sleepLogs: [...day.sleepLogs, { ...s, id: uid(), hours }] } }));
+    setShowAdd(null);
+    setTimeout(() => triggerCoachNotif("sleep"), 600);
+  };
+  const deleteSleep = (id: string) => { setJournal(j => ({ ...j, [date]: { ...day, sleepLogs: day.sleepLogs.filter(s => s.id !== id) } })); };
 
   const finishDay = () => {
-    const ss = Math.min(100, (totals.steps / 10000) * 100) * 0.25;
-    const ws = Math.min(100, (totals.waterMl / 2500) * 100) * 0.25;
-    const as2 = Math.min(100, (totals.totalKm / 8) * 100) * 0.25;
-    const ns = Math.min(100, (totals.protein / 100) * 100 + (totals.caloriesIn > 0 && totals.caloriesIn < 2500 ? 20 : 0)) * 0.25;
-    setJournal(j => ({ ...j, [date]: { ...day, finished: true, rating: Math.round(ss + ws + as2 + ns) } }));
+    const ss = Math.min(100, (totals.steps / 10000) * 100) * 0.2;
+    const ws = Math.min(100, (totals.waterMl / 2500) * 100) * 0.2;
+    const as2 = Math.min(100, (totals.totalKm / 8) * 100) * 0.15;
+    const es = Math.min(100, (day.exercises.length / 3) * 100) * 0.1;
+    const ns = Math.min(100, (totals.protein / 100) * 80 + (totals.caloriesIn > 1600 && totals.caloriesIn < 2400 ? 20 : 10)) * 0.15;
+    const sls = Math.min(100, (totals.sleepHrs / 7) * 100) * 0.2;
+    setJournal(j => ({ ...j, [date]: { ...day, finished: true, rating: Math.round(ss + ws + as2 + es + ns + sls) } }));
     setShowFinish(false);
   };
 
@@ -201,7 +257,6 @@ export default function App() {
       <div className="pointer-events-none fixed inset-0">
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(34,197,94,0.12),_transparent_60%),radial-gradient(ellipse_at_bottom_right,_rgba(6,182,212,0.1),_transparent_50%),radial-gradient(ellipse_at_bottom_left,_rgba(16,185,129,0.08),_transparent_50%)]" />
         <div className="absolute inset-0 opacity-[0.03]" style={{ backgroundImage: `linear-gradient(to right, #fff 1px, transparent 1px), linear-gradient(to bottom, #fff 1px, transparent 1px)`, backgroundSize: "64px 64px" }} />
-        {/* Floating orbs */}
         <div className="absolute top-[20%] left-[10%] h-64 w-64 rounded-full bg-emerald-500/5 blur-[80px] anim-float-slow" />
         <div className="absolute top-[50%] right-[15%] h-48 w-48 rounded-full bg-cyan-500/5 blur-[60px] anim-float-slow delay-1000" />
         <div className="absolute bottom-[20%] left-[40%] h-56 w-56 rounded-full bg-violet-500/4 blur-[70px] anim-float delay-500" />
@@ -218,8 +273,8 @@ export default function App() {
               </div>
             </div>
             <div>
-              <h1 className="text-[22px] font-semibold tracking-tight bg-gradient-to-r from-white via-emerald-200 to-cyan-200 bg-clip-text text-transparent anim-gradient-shift" style={{ backgroundSize: "200% 200%" }}>VITALYTIX</h1>
-              <p className="text-xs text-zinc-400 -mt-1">Advanced Daily Health Journal</p>
+              <h1 className="text-[22px] font-semibold tracking-tight bg-gradient-to-r from-white via-emerald-200 to-cyan-200 bg-clip-text text-transparent anim-gradient-shift" style={{ backgroundSize: "200% 200%" }}>AlokeshFitness</h1>
+              <p className="text-xs text-zinc-400 -mt-1">Your Personal Health Journal</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -286,7 +341,7 @@ export default function App() {
               { label: "Calories Burned", value: weekStats.calories, unit: "", icon: Flame, color: "text-orange-400", bg: "bg-orange-500/10", border: "border-orange-500/20", glow: "" },
               { label: "Active Days", value: weekStats.activeDays, unit: "/7", icon: Calendar, color: "text-amber-400", bg: "bg-amber-500/10", border: "border-amber-500/20", glow: "" },
             ].map((s, i) => (
-              <div key={s.label} className={`group relative overflow-hidden rounded-2xl border ${s.border} bg-[#0a0f0a]/70 p-4 backdrop-blur transition hover:bg-[#0f1a0f]/80 card-hover anim-fade-right anim-shimmer`} style={{ animationDelay: `${150 + i * 80}ms` }}>
+              <div key={s.label} className={`group relative overflow-hidden rounded-2xl border ${s.border} bg-[#0a0f0a]/70 p-4 backdrop-blur transition hover:bg-[#0f1a0f]/80 card-hover anim-shimmer`} style={{ animationDelay: `${150 + i * 80}ms` }}>
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-[11px] uppercase tracking-wider text-zinc-500">{s.label}</p>
@@ -304,15 +359,16 @@ export default function App() {
 
           {/* Quick Log */}
           <div className="col-span-12 anim-fade-up delay-300">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
               {[
-                { k: "workout", label: "Log Run/Walk", icon: Activity, desc: `${totals.totalKm.toFixed(1)} km today`, color: "from-emerald-600/20 to-green-600/20 hover:from-emerald-600/30 hover:to-green-600/30 border-emerald-500/20" },
+                { k: "workout", label: "Log Run/Walk", icon: Activity, desc: `${totals.totalKm.toFixed(1)} km`, color: "from-emerald-600/20 to-green-600/20 hover:from-emerald-600/30 hover:to-green-600/30 border-emerald-500/20" },
+                { k: "exercise", label: "Exercises", icon: Dumbbell, desc: `${day.exercises.length} logged`, color: "from-violet-600/20 to-purple-600/20 hover:from-violet-600/30 hover:to-purple-600/30 border-violet-500/20" },
                 { k: "food", label: "Add Food", icon: Utensils, desc: `${totals.caloriesIn} kcal`, color: "from-cyan-600/20 to-blue-600/20 hover:from-cyan-600/30 hover:to-blue-600/30 border-cyan-500/20" },
-                { k: "water", label: "Water Intake", icon: Droplets, desc: `${(totals.waterMl / 1000).toFixed(1)}L / 2.5L`, color: "from-blue-600/20 to-indigo-600/20 hover:from-blue-600/30 hover:to-indigo-600/30 border-blue-500/20" },
-                { k: "summary", label: "Today's Score", icon: Target, desc: day.finished ? `${day.rating}/100` : "In progress", color: "from-violet-600/20 to-purple-600/20 hover:from-violet-600/30 hover:to-purple-600/30 border-violet-500/20" },
+                { k: "water", label: "Water", icon: Droplets, desc: `${(totals.waterMl/1000).toFixed(1)}L / 2.5L`, color: "from-blue-600/20 to-indigo-600/20 hover:from-blue-600/30 hover:to-indigo-600/30 border-blue-500/20" },
+                { k: "sleep", label: "Sleep", icon: Moon, desc: `${totals.sleepHrs > 0 ? totals.sleepHrs.toFixed(1) + "h" : "Log sleep"}`, color: "from-indigo-600/20 to-blue-600/20 hover:from-indigo-600/30 hover:to-blue-600/30 border-indigo-500/20" },
+                { k: "summary", label: "Score", icon: Target, desc: day.finished ? `${day.rating}/100` : "In progress", color: "from-amber-600/20 to-orange-600/20 hover:from-amber-600/30 hover:to-orange-600/30 border-amber-500/20" },
               ].map((b, i) => (
                 <button key={b.k} onClick={() => b.k !== "summary" && setShowAdd(b.k as any)} className={`group relative overflow-hidden rounded-2xl border bg-gradient-to-b p-[1px] transition active:scale-95 ${b.color} particle-container anim-fade-up`} style={{ animationDelay: `${350 + i * 60}ms` }}>
-                  {/* Particles on hover */}
                   <div className="p1 bg-emerald-400 bottom-1/2 left-1/2" />
                   <div className="p2 bg-cyan-400 bottom-1/2 left-1/2" />
                   <div className="p3 bg-white bottom-1/2 left-1/2" />
@@ -337,11 +393,11 @@ export default function App() {
           <div className="col-span-12 anim-fade-up delay-400">
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-[15px] font-medium text-zinc-200">Workout History</h3>
-              <p className="text-xs text-zinc-500">Your recent sessions, complete with pace, heart rate, calorie, and step data.</p>
+              <p className="text-xs text-zinc-500">Your recent sessions with pace, steps, calorie & step data.</p>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3.5">
               {day.workouts.slice(0, 8).map((w, idx) => (
-                <div key={w.id} className={`group relative overflow-hidden rounded-[20px] border border-white/5 bg-[#07110a]/70 p-4 backdrop-blur-xl transition-all hover:border-emerald-500/20 hover:bg-[#0a170e]/80 card-hover anim-slide-up`} style={{ animationDelay: `${450 + idx * 100}ms` }}>
+                <div key={w.id} className="group relative overflow-hidden rounded-[20px] border border-white/5 bg-[#07110a]/70 p-4 backdrop-blur-xl transition-all hover:border-emerald-500/20 hover:bg-[#0a170e]/80 card-hover anim-slide-up" style={{ animationDelay: `${450 + idx * 100}ms` }}>
                   <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-emerald-500/5 blur-2xl transition-all duration-500 group-hover:bg-emerald-500/10 group-hover:scale-125" />
                   <div className="relative">
                     <div className="flex items-start justify-between">
@@ -363,19 +419,15 @@ export default function App() {
                     <div className="mt-3.5 grid grid-cols-2 gap-2">
                       {[
                         { label: "Pace", value: w.pace },
-                        { label: "Duration", value: `${Math.floor(w.duration / 60)}h ${w.duration % 60}m` },
-                        { label: "Heart Rate", value: `${w.heartRate} bpm` },
+                        { label: "Duration", value: `${Math.floor(w.duration/60)}h ${w.duration%60}m` },
                         { label: "Calories", value: w.calories.toString() },
+                        { label: "Steps", value: w.steps.toLocaleString() },
                       ].map((m) => (
                         <div key={m.label} className="rounded-lg bg-black/30 px-2.5 py-2 ring-1 ring-white/5 transition-all hover:bg-black/50 hover:ring-white/10">
                           <div className="text-[10px] text-zinc-500">{m.label}</div>
-                          <div className={`text-[13px] font-medium ${m.label.includes("Pace") || m.label.includes("Heart") || m.label.includes("Cal") ? "text-orange-300" : "text-cyan-300"}`}>{m.value}</div>
+                          <div className={`text-[13px] font-medium ${m.label === "Pace" || m.label === "Calories" ? "text-orange-300" : "text-cyan-300"}`}>{m.value}</div>
                         </div>
                       ))}
-                    </div>
-                    <div className="mt-3 flex items-center justify-between border-t border-white/5 pt-3">
-                      <div className="flex items-center gap-1.5 text-[11px] text-zinc-500"><Footprints className="h-3.5 w-3.5" /> Steps</div>
-                      <div className="text-[15px] font-semibold text-white">{w.steps.toLocaleString()}</div>
                     </div>
                   </div>
                 </div>
@@ -383,141 +435,219 @@ export default function App() {
               {day.workouts.length === 0 && (
                 <div className="col-span-full rounded-[20px] border border-dashed border-white/10 bg-white/[0.02] p-8 text-center anim-fade-scale">
                   <Activity className="mx-auto h-8 w-8 text-zinc-700 mb-2 anim-float" />
-                  <p className="text-sm text-zinc-500">No workouts logged yet today. Add your first run or walk!</p>
+                  <p className="text-sm text-zinc-500">No workouts logged yet. Add your first run or walk!</p>
                 </div>
               )}
             </div>
           </div>
 
+          {/* Exercises Section */}
+          {day.exercises.length > 0 && (
+            <div className="col-span-12 anim-fade-up delay-450">
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="text-[15px] font-medium text-zinc-200 flex items-center gap-2"><Dumbbell className="h-4 w-4 text-violet-400" /> Exercises</h3>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                {day.exercises.map((ex, idx) => (
+                  <div key={ex.id} className="group relative rounded-[16px] border border-white/5 bg-[#0a0a14]/70 p-3.5 backdrop-blur-xl transition-all hover:border-violet-500/20 card-hover anim-fade-up" style={{ animationDelay: `${idx * 60}ms` }}>
+                    <div className="flex items-start justify-between">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-500/15 text-violet-400 ring-1 ring-inset ring-white/5">
+                        <Dumbbell className="h-4 w-4" />
+                      </div>
+                      <button onClick={() => deleteExercise(ex.id)} className="opacity-0 group-hover:opacity-100 p-1 text-zinc-600 hover:text-red-400 transition"><Trash2 className="h-3 w-3" /></button>
+                    </div>
+                    <div className="mt-2.5">
+                      <div className="text-[13px] font-medium text-zinc-200 truncate">{ex.name}</div>
+                      <div className="text-[11px] text-zinc-500">{ex.time}</div>
+                    </div>
+                    <div className="mt-2 grid grid-cols-3 gap-1">
+                      <div className="rounded-md bg-black/30 px-1.5 py-1 text-center ring-1 ring-white/5">
+                        <div className="text-[9px] text-zinc-500">Sets</div>
+                        <div className="text-[13px] font-semibold text-violet-300">{ex.sets}</div>
+                      </div>
+                      <div className="rounded-md bg-black/30 px-1.5 py-1 text-center ring-1 ring-white/5">
+                        <div className="text-[9px] text-zinc-500">Reps</div>
+                        <div className="text-[13px] font-semibold text-violet-300">{ex.reps}</div>
+                      </div>
+                      <div className="rounded-md bg-black/30 px-1.5 py-1 text-center ring-1 ring-white/5">
+                        <div className="text-[9px] text-zinc-500">Cal</div>
+                        <div className="text-[13px] font-semibold text-orange-300">{ex.calories}</div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Bottom analytics */}
           <div className="col-span-12 grid grid-cols-12 gap-5">
             {/* Water */}
-            <div className="col-span-12 lg:col-span-4 anim-fade-up delay-500">
+            <div className="col-span-12 lg:col-span-3 anim-fade-up delay-500">
               <div className={`h-full rounded-[24px] border border-blue-900/30 bg-[#040c14]/70 p-5 backdrop-blur-xl card-hover water-wave transition-all ${waterPop ? "anim-pulse-glow-blue" : ""}`}>
                 <div className="flex items-center justify-between mb-4">
                   <h4 className="text-[14px] font-medium flex items-center gap-2"><Droplets className={`h-4 w-4 text-blue-400 ${waterPop ? "animate-bounce" : ""}`} /> Hydration</h4>
-                  <span className="text-xs text-zinc-500">{bottleFills}× 1.5L bottles</span>
+                  <span className="text-xs text-zinc-500">{bottleFills}× 1.5L</span>
                 </div>
-                <div className="flex gap-5">
+                <div className="flex gap-4">
                   <div className="relative">
-                    <div className="relative h-[160px] w-[90px] anim-float-slow">
-                      <svg viewBox="0 0 90 160" className="absolute inset-0">
+                    <div className="relative h-[140px] w-[70px] anim-float-slow">
+                      <svg viewBox="0 0 70 140" className="absolute inset-0">
                         <defs>
                           <linearGradient id="waterGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#22d3ee" /><stop offset="100%" stopColor="#0ea5e9" /></linearGradient>
-                          <clipPath id="bottleClip"><path d="M25 12 C25 6, 30 2, 37 2 L53 2 C60 2, 65 6, 65 12 L68 22 L68 45 C75 50, 78 58, 78 68 L78 138 C78 148, 70 156, 60 156 L30 156 C20 156, 12 148, 12 138 L12 68 C12 58, 15 50, 22 45 L22 22 Z" /></clipPath>
+                          <clipPath id="bottleClip"><path d="M20 10 C20 5, 24 2, 30 2 L40 2 C46 2, 50 5, 50 10 L52 18 L52 38 C57 42, 60 48, 60 56 L60 118 C60 126, 54 132, 46 132 L24 132 C16 132, 10 126, 10 118 L10 56 C10 48, 13 42, 18 38 L18 18 Z" /></clipPath>
                         </defs>
-                        <path d="M25 12 C25 6, 30 2, 37 2 L53 2 C60 2, 65 6, 65 12 L68 22 L68 45 C75 50, 78 58, 78 68 L78 138 C78 148, 70 156, 60 156 L30 156 C20 156, 12 148, 12 138 L12 68 C12 58, 15 50, 22 45 L22 22 Z" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="2" />
+                        <path d="M20 10 C20 5, 24 2, 30 2 L40 2 C46 2, 50 5, 50 10 L52 18 L52 38 C57 42, 60 48, 60 56 L60 118 C60 126, 54 132, 46 132 L24 132 C16 132, 10 126, 10 118 L10 56 C10 48, 13 42, 18 38 L18 18 Z" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="2" />
                         <g clipPath="url(#bottleClip)">
-                          <rect x="12" y={156 - (bottleRemainder / 1500) * 144} width="66" height="144" fill="url(#waterGrad)" opacity="0.9">
-                            <animate attributeName="y" values={`${156 - (bottleRemainder / 1500) * 144};${154 - (bottleRemainder / 1500) * 144};${156 - (bottleRemainder / 1500) * 144}`} dur="3s" repeatCount="indefinite" />
+                          <rect x="10" y={132 - (bottleRemainder/1500)*120} width="50" height="120" fill="url(#waterGrad)" opacity="0.9">
+                            <animate attributeName="y" values={`${132 - (bottleRemainder/1500)*120};${130 - (bottleRemainder/1500)*120};${132 - (bottleRemainder/1500)*120}`} dur="3s" repeatCount="indefinite" />
                           </rect>
-                          <path d={`M12 ${156 - (bottleRemainder / 1500) * 144} Q30 ${152 - (bottleRemainder / 1500) * 144}, 45 ${156 - (bottleRemainder / 1500) * 144} T78 ${154 - (bottleRemainder / 1500) * 144}`} fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="1.5">
-                            <animateTransform attributeName="transform" type="translate" values="0,0;3,-1;0,0;-3,1;0,0" dur="4s" repeatCount="indefinite" />
-                          </path>
                         </g>
                       </svg>
-                      <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 text-[10px] font-medium text-blue-300 bg-[#040c14] px-1.5 py-0.5 rounded">1.5L</div>
+                      <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 text-[9px] font-medium text-blue-300 bg-[#040c14] px-1 py-0.5 rounded">1.5L</div>
                     </div>
                   </div>
                   <div className="flex-1">
-                    <div className="text-[32px] font-semibold leading-none text-white"><AnimatedNumber value={totals.waterMl / 1000} /><span className="text-[18px] text-zinc-500 ml-1">L</span></div>
-                    <div className="mt-1 text-xs text-zinc-500">of 2.5L goal • {Math.round(waterPercent)}%</div>
-                    <div className="mt-3 h-2.5 w-full overflow-hidden rounded-full bg-white/5 relative">
-                      <div className="h-full bg-gradient-to-r from-blue-500 to-cyan-400 transition-all duration-700 ease-out rounded-full" style={{ width: `${waterPercent}%` }}>
-                        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent" style={{ animation: "shimmer 2s infinite" }} />
-                      </div>
+                    <div className="text-[28px] font-semibold leading-none text-white"><AnimatedNumber value={totals.waterMl/1000} /><span className="text-[16px] text-zinc-500 ml-1">L</span></div>
+                    <div className="mt-1 text-xs text-zinc-500">of 2.5L • {Math.round(waterPercent)}%</div>
+                    <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-white/5">
+                      <div className="h-full bg-gradient-to-r from-blue-500 to-cyan-400 transition-all duration-700 rounded-full" style={{ width: `${waterPercent}%` }} />
                     </div>
-                    <div className="mt-4 grid grid-cols-3 gap-1.5">
+                    <div className="mt-3 grid grid-cols-3 gap-1">
                       {[150, 250, 500].map(a => (
-                        <button key={a} onClick={() => addWater(a)} className="rounded-lg bg-white/5 py-1.5 text-[11px] hover:bg-white/10 transition ring-1 ring-white/5 active:scale-90 btn-ripple">+{a}ml</button>
+                        <button key={a} onClick={() => addWater(a)} className="rounded-lg bg-white/5 py-1 text-[10px] hover:bg-white/10 transition ring-1 ring-white/5 active:scale-90">+{a}</button>
                       ))}
                     </div>
-                    <button onClick={() => addWater(1500)} className="mt-1.5 w-full rounded-lg bg-blue-500/15 py-1.5 text-[11px] text-blue-300 hover:bg-blue-500/25 transition ring-1 ring-blue-500/20 active:scale-95 btn-ripple">+ Full Bottle (1.5L)</button>
-                  </div>
-                </div>
-                <div className="mt-4 flex flex-wrap gap-1.5">
-                  {day.water.slice(-6).map((w, i) => (
-                    <div key={w.id} className="flex items-center gap-1 rounded-full bg-white/5 px-2 py-1 text-[10px] text-zinc-400 ring-1 ring-white/5 anim-fade-scale" style={{ animationDelay: `${i * 60}ms` }}>
-                      <Waves className="h-3 w-3 text-cyan-400" /> {w.amount}ml • {w.time}
+                    <button onClick={() => addWater(1500)} className="mt-1 w-full rounded-lg bg-blue-500/15 py-1 text-[10px] text-blue-300 hover:bg-blue-500/25 transition ring-1 ring-blue-500/20 active:scale-95">+ Full Bottle</button>
+                    {/* Water logs with delete */}
+                    <div className="mt-2 space-y-1 max-h-[60px] overflow-auto">
+                      {day.water.map(w => (
+                        <div key={w.id} className="flex items-center justify-between rounded-md bg-white/5 px-2 py-1 text-[10px]">
+                          <span className="text-zinc-400">{w.amount}ml • {w.time}</span>
+                          <button onClick={() => deleteWater(w.id)} className="text-zinc-600 hover:text-red-400 transition"><Trash2 className="h-3 w-3" /></button>
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  </div>
                 </div>
               </div>
             </div>
 
             {/* Nutrition */}
-            <div className="col-span-12 lg:col-span-4 anim-fade-up delay-600">
+            <div className="col-span-12 lg:col-span-3 anim-fade-up delay-600">
               <div className="h-full rounded-[24px] border border-white/5 bg-[#0a0f0a]/70 p-5 backdrop-blur-xl card-hover">
                 <div className="flex items-center justify-between mb-3">
-                  <h4 className="text-[14px] font-medium flex items-center gap-2"><Apple className="h-4 w-4 text-emerald-400 anim-float" /> Nutrition Today</h4>
-                  <span className="text-xs text-zinc-500">{totals.caloriesIn} / 2200 kcal</span>
+                  <h4 className="text-[14px] font-medium flex items-center gap-2"><Apple className="h-4 w-4 text-emerald-400 anim-float" /> Nutrition</h4>
+                  <span className="text-xs text-zinc-500">{totals.caloriesIn} cal</span>
                 </div>
-                <div className="grid grid-cols-3 gap-3 mb-3">
+                <div className="grid grid-cols-3 gap-2 mb-3">
                   {[
-                    { label: "Protein", v: day.foods.reduce((a, b) => a + b.protein, 0), t: 120, c: "#22d3ee" },
-                    { label: "Carbs", v: day.foods.reduce((a, b) => a + b.carbs, 0), t: 250, c: "#4ade80" },
-                    { label: "Fat", v: day.foods.reduce((a, b) => a + b.fat, 0), t: 70, c: "#f97316" },
+                    { label: "Protein", v: day.foods.reduce((a,b)=>a+b.protein,0), t: 120, c: "#22d3ee" },
+                    { label: "Carbs", v: day.foods.reduce((a,b)=>a+b.carbs,0), t: 250, c: "#4ade80" },
+                    { label: "Fat", v: day.foods.reduce((a,b)=>a+b.fat,0), t: 70, c: "#f97316" },
                   ].map((m, i) => (
                     <div key={m.label} className="text-center anim-fade-scale" style={{ animationDelay: `${700 + i * 100}ms` }}>
-                      <div className="relative mx-auto h-16 w-16">
+                      <div className="relative mx-auto h-14 w-14">
                         <svg className="rotate-[-90deg]" viewBox="0 0 64 64">
-                          <circle cx="32" cy="32" r="26" fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="6" />
-                          <circle cx="32" cy="32" r="26" fill="none" stroke={m.c} strokeWidth="6" strokeDasharray={`${2 * Math.PI * 26}`} strokeDashoffset={`${2 * Math.PI * 26 * (1 - Math.min(1, m.v / m.t))}`} strokeLinecap="round" style={{ transition: "stroke-dashoffset 1s cubic-bezier(0.16,1,0.3,1)" }} />
+                          <circle cx="32" cy="32" r="24" fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="5" />
+                          <circle cx="32" cy="32" r="24" fill="none" stroke={m.c} strokeWidth="5" strokeDasharray={`${2*Math.PI*24}`} strokeDashoffset={`${2*Math.PI*24*(1-Math.min(1,m.v/m.t))}`} strokeLinecap="round" />
                         </svg>
-                        <div className="absolute inset-0 grid place-items-center">
-                          <span className="text-[13px] font-semibold">{m.v}</span>
-                        </div>
+                        <div className="absolute inset-0 grid place-items-center"><span className="text-[12px] font-semibold">{m.v}</span></div>
                       </div>
-                      <div className="mt-1 text-[11px] text-zinc-500">{m.label}</div>
+                      <div className="mt-0.5 text-[10px] text-zinc-500">{m.label}</div>
                     </div>
                   ))}
                 </div>
-                <div className="space-y-1.5 max-h-[110px] overflow-auto pr-1">
-                  {day.foods.map((f, i) => (
-                    <div key={f.id} className="flex items-center justify-between rounded-lg bg-black/20 px-2.5 py-1.5 ring-1 ring-white/5 transition-all hover:bg-black/30 hover:ring-white/10 anim-fade-left" style={{ animationDelay: `${i * 60}ms` }}>
+                <div className="space-y-1 max-h-[120px] overflow-auto pr-1">
+                  {day.foods.map(f => (
+                    <div key={f.id} className="group flex items-center justify-between rounded-lg bg-black/20 px-2.5 py-1.5 ring-1 ring-white/5 transition-all hover:bg-black/30 hover:ring-white/10">
                       <div className="flex items-center gap-2 min-w-0">
-                        <div className={`h-6 w-6 grid place-items-center rounded-md ${f.meal === "breakfast" ? "bg-amber-500/15 text-amber-300" : f.meal === "lunch" ? "bg-emerald-500/15 text-emerald-300" : f.meal === "dinner" ? "bg-violet-500/15 text-violet-300" : "bg-cyan-500/15 text-cyan-300"}`}>
-                          {f.meal === "breakfast" ? <Moon className="h-3 w-3 rotate-180" /> : f.meal === "lunch" ? <Utensils className="h-3 w-3" /> : f.meal === "dinner" ? <Beef className="h-3 w-3" /> : <Apple className="h-3 w-3" />}
+                        <div className={`h-5 w-5 grid place-items-center rounded-md ${f.meal==="breakfast"?"bg-amber-500/15 text-amber-300":f.meal==="lunch"?"bg-emerald-500/15 text-emerald-300":f.meal==="dinner"?"bg-violet-500/15 text-violet-300":"bg-cyan-500/15 text-cyan-300"}`}>
+                          {f.meal==="breakfast"?<Sun className="h-2.5 w-2.5" />:f.meal==="lunch"?<Utensils className="h-2.5 w-2.5" />:f.meal==="dinner"?<Moon className="h-2.5 w-2.5" />:<Apple className="h-2.5 w-2.5" />}
                         </div>
                         <div className="min-w-0">
-                          <div className="truncate text-[12px] text-zinc-200">{f.name}</div>
-                          <div className="text-[10px] text-zinc-500">{f.time} • P{f.protein} C{f.carbs} F{f.fat}</div>
+                          <div className="truncate text-[11px] text-zinc-200">{f.name}</div>
+                          <div className="text-[9px] text-zinc-500">{f.time} • P{f.protein}g C{f.carbs}g F{f.fat}g</div>
                         </div>
                       </div>
-                      <div className="text-[12px] font-medium text-zinc-300">{f.calories}</div>
+                      <div className="flex items-center gap-1.5">
+                        <div className="text-[11px] font-medium text-zinc-300">{f.calories}</div>
+                        <button onClick={() => deleteFood(f.id)} className="opacity-0 group-hover:opacity-100 p-0.5 text-zinc-600 hover:text-red-400 transition"><Trash2 className="h-3 w-3" /></button>
+                      </div>
                     </div>
                   ))}
-                  {day.foods.length === 0 && <div className="py-6 text-center text-xs text-zinc-600">No meals logged</div>}
+                  {day.foods.length === 0 && <div className="py-4 text-center text-xs text-zinc-600">No meals logged</div>}
                 </div>
               </div>
             </div>
 
+            {/* Sleep */}
+            <div className="col-span-12 lg:col-span-3 anim-fade-up delay-650">
+              <div className="h-full rounded-[24px] border border-indigo-900/30 bg-[#080a14]/70 p-5 backdrop-blur-xl card-hover">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-[14px] font-medium flex items-center gap-2"><Moon className="h-4 w-4 text-indigo-400" /> Sleep</h4>
+                  <button onClick={() => setShowAdd("sleep")} className="rounded-lg bg-indigo-500/15 px-2 py-1 text-[10px] text-indigo-300 hover:bg-indigo-500/25 transition ring-1 ring-indigo-500/20">+ Log</button>
+                </div>
+                {day.sleepLogs.length > 0 ? (
+                  <div className="space-y-2">
+                    {day.sleepLogs.map(s => (
+                      <div key={s.id} className="group flex items-center justify-between rounded-xl bg-black/20 px-3 py-2 ring-1 ring-white/5">
+                        <div className="flex items-center gap-2">
+                          <div className={`h-7 w-7 grid place-items-center rounded-lg ${s.isNap ? "bg-amber-500/15 text-amber-300" : "bg-indigo-500/15 text-indigo-300"} ring-1 ring-inset ring-white/5`}>
+                            {s.isNap ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
+                          </div>
+                          <div>
+                            <div className="text-[12px] font-medium text-zinc-200">{s.isNap ? "Nap" : "Night Sleep"}</div>
+                            <div className="text-[10px] text-zinc-500">{s.bedTime} → {s.wakeTime}</div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="text-[16px] font-semibold text-indigo-300">{s.hours}h</div>
+                          <button onClick={() => deleteSleep(s.id)} className="opacity-0 group-hover:opacity-100 p-0.5 text-zinc-600 hover:text-red-400 transition"><Trash2 className="h-3 w-3" /></button>
+                        </div>
+                      </div>
+                    ))}
+                    <div className="flex items-center justify-between rounded-lg bg-white/[0.02] px-3 py-2">
+                      <span className="text-[11px] text-zinc-500">Total sleep</span>
+                      <span className="text-[13px] font-semibold text-white">{totals.sleepHrs.toFixed(1)}h {totals.napHrs > 0 ? `(+${totals.napHrs.toFixed(1)}h nap)` : ""}</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center py-6">
+                    <Moon className="mx-auto h-8 w-8 text-zinc-700 mb-2 anim-float" />
+                    <p className="text-xs text-zinc-500">No sleep logged yet</p>
+                    <button onClick={() => setShowAdd("sleep")} className="mt-2 rounded-lg bg-indigo-500/15 px-3 py-1.5 text-[11px] text-indigo-300 hover:bg-indigo-500/25 transition ring-1 ring-indigo-500/20">Log your sleep</button>
+                  </div>
+                )}
+              </div>
+            </div>
+
             {/* Daily Balance */}
-            <div className="col-span-12 lg:col-span-4 anim-fade-up delay-700">
+            <div className="col-span-12 lg:col-span-3 anim-fade-up delay-700">
               <div className="h-full rounded-[24px] border border-white/5 bg-[#0a0f0a]/70 p-5 backdrop-blur-xl card-hover">
                 <h4 className="text-[14px] font-medium flex items-center gap-2 mb-3"><TrendingUp className="h-4 w-4 text-violet-400" /> Energy Balance</h4>
-                <div className="h-[140px]">
+                <div className="h-[120px]">
                   <ResponsiveContainer>
                     <BarChart data={[{ name: "Today", in: totals.caloriesIn, out: totals.caloriesOut + 1650 }]} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
                       <CartesianGrid stroke="rgba(255,255,255,0.05)" vertical={false} />
                       <XAxis dataKey="name" tick={{ fill: "#71717a", fontSize: 11 }} axisLine={false} tickLine={false} />
                       <YAxis hide />
                       <Tooltip contentStyle={{ background: "#030712", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8 }} />
-                      <Bar dataKey="in" fill="#22d3ee" radius={[6, 6, 0, 0]} name="Consumed" animationDuration={1000} />
-                      <Bar dataKey="out" fill="#4ade80" radius={[6, 6, 0, 0]} name="Burned (BMR+Activity)" animationDuration={1200} />
+                      <Bar dataKey="in" fill="#22d3ee" radius={[6,6,0,0]} name="Consumed" animationDuration={1000} />
+                      <Bar dataKey="out" fill="#4ade80" radius={[6,6,0,0]} name="Burned" animationDuration={1200} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
                 <div className="mt-3 grid grid-cols-3 gap-2">
                   {[
                     { l: "Steps", v: totals.steps.toLocaleString(), i: Footprints, c: "text-cyan-400" },
-                    { l: "Active", v: `${day.workouts.reduce((a, b) => a + b.duration, 0)}m`, i: Zap, c: "text-amber-400" },
-                    { l: "Sleep", v: `${day.sleep?.toFixed(1) ?? "—"}h`, i: Moon, c: "text-violet-400" },
+                    { l: "Active", v: `${day.workouts.reduce((a,b)=>a+b.duration,0)}m`, i: Zap, c: "text-amber-400" },
+                    { l: "Sleep", v: `${totals.sleepHrs > 0 ? totals.sleepHrs.toFixed(1) + "h" : "—"}`, i: Moon, c: "text-violet-400" },
                   ].map((x, idx) => (
-                    <div key={x.l} className="rounded-xl bg-black/20 p-2.5 text-center ring-1 ring-white/5 transition-all hover:ring-white/10 hover:bg-black/30 anim-fade-up" style={{ animationDelay: `${800 + idx * 80}ms` }}>
+                    <div key={x.l} className="rounded-xl bg-black/20 p-2 text-center ring-1 ring-white/5 transition-all hover:ring-white/10 hover:bg-black/30 anim-fade-up" style={{ animationDelay: `${800 + idx * 80}ms` }}>
                       <x.i className={`mx-auto h-4 w-4 ${x.c} mb-1`} />
-                      <div className="text-[11px] text-zinc-500">{x.l}</div>
-                      <div className="text-[14px] font-semibold text-white">{x.v}</div>
+                      <div className="text-[10px] text-zinc-500">{x.l}</div>
+                      <div className="text-[13px] font-semibold text-white">{x.v}</div>
                     </div>
                   ))}
                 </div>
@@ -531,7 +661,7 @@ export default function App() {
               <div className="rounded-[24px] border border-white/5 bg-[#050a05]/70 p-5 backdrop-blur-xl card-hover anim-shimmer">
                 <div className="flex items-center justify-between mb-3">
                   <h4 className="text-[14px] font-medium">Weekly Steps Trend</h4>
-                  <div className="text-xs text-zinc-500">Avg {Math.round(last14.reduce((a, b) => a + b.total * 1320, 0) / 14).toLocaleString()} steps/day</div>
+                  <div className="text-xs text-zinc-500">Avg {Math.round(last14.reduce((a,b)=>a+b.total*1320,0)/14).toLocaleString()} steps/day</div>
                 </div>
                 <div className="h-[180px]">
                   <ResponsiveContainer>
@@ -579,7 +709,7 @@ export default function App() {
           <div>Step decoding: 1 km ≈ 1,320 steps • Calories estimated via MET • Data stored locally</div>
           <div className="flex items-center gap-3">
             <button onClick={() => { localStorage.removeItem(STORAGE_KEY); location.reload(); }} className="hover:text-zinc-400 flex items-center gap-1 transition active:scale-95"><RotateCcw className="h-3 w-3" /> Clear all data</button>
-            <span>© Vitalytix</span>
+            <span>© AlokeshFitness</span>
           </div>
         </div>
       </div>
@@ -590,10 +720,16 @@ export default function App() {
         workoutCount={day.workouts.length}
         foodCount={day.foods.length}
         foods={day.foods.map(f => ({ name: f.name, calories: f.calories, protein: f.protein, carbs: f.carbs, fat: f.fat, meal: f.meal }))}
-        sleep={day.sleep}
+        sleep={totals.sleepHrs}
+        exerciseCount={day.exercises.length}
         isOpen={coachOpen}
         onToggle={() => setCoachOpen(!coachOpen)}
         notification={coachNotif}
+        onAddWorkout={(w) => addWorkout({ ...w, heartRate: 0 })}
+        onAddExercise={addExercise}
+        onAddFood={addFood}
+        onAddWater={addWater}
+        onAddSleep={addSleep}
       />
 
       {/* Modals */}
@@ -606,9 +742,19 @@ export default function App() {
           />
         </Modal>
       )}
+      {showAdd === "exercise" && (
+        <Modal title="Log Exercise" onClose={() => setShowAdd(null)}>
+          <ExerciseForm onSubmit={addExercise} />
+        </Modal>
+      )}
       {showAdd === "food" && (
         <Modal title="Add Food" onClose={() => setShowAdd(null)}>
           <FoodForm onSubmit={addFood} onClose={() => setShowAdd(null)} />
+        </Modal>
+      )}
+      {showAdd === "sleep" && (
+        <Modal title="Log Sleep" onClose={() => setShowAdd(null)}>
+          <SleepForm onSubmit={addSleep} />
         </Modal>
       )}
       {showAdd === "water" && (
@@ -616,7 +762,7 @@ export default function App() {
           <div className="space-y-4">
             <div className="rounded-xl bg-blue-500/5 p-3 ring-1 ring-blue-500/15 anim-fade-scale">
               <div className="flex items-center gap-2 text-sm text-blue-300"><Droplets className="h-4 w-4 anim-float" /> Your bottle: 1.5L</div>
-              <p className="mt-1 text-xs text-zinc-400">Tap a preset or enter custom amount. Each log is timestamped and added to today.</p>
+              <p className="mt-1 text-xs text-zinc-400">Tap a preset or enter custom amount. Each log is timestamped.</p>
             </div>
             <div className="grid grid-cols-3 gap-2">
               {[150, 250, 330, 500, 750, 1500].map((a, i) => (
@@ -628,7 +774,7 @@ export default function App() {
             </div>
             <div className="flex gap-2 anim-fade-up delay-300">
               <input id="customWater" type="number" placeholder="Custom ml" className="flex-1 rounded-xl bg-black/40 px-3 py-2.5 text-sm outline-none ring-1 ring-white/10 focus:ring-blue-500/50 transition" />
-              <button onClick={() => { const v = Number((document.getElementById('customWater') as HTMLInputElement).value); if (v > 0) addWater(v); }} className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium hover:bg-blue-500 transition active:scale-95">Add</button>
+              <button onClick={() => { const v = Number((document.getElementById('customWater') as HTMLInputElement).value); if (v>0) addWater(v); }} className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium hover:bg-blue-500 transition active:scale-95">Add</button>
             </div>
           </div>
         </Modal>
@@ -647,14 +793,14 @@ export default function App() {
 function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 backdrop-blur-xl anim-overlay">
-      <div className="relative w-full max-w-lg overflow-hidden rounded-[24px] border border-white/10 bg-[#070e07]/90 shadow-2xl anim-modal">
+      <div className="relative w-full max-w-lg overflow-hidden rounded-[24px] border border-white/10 bg-[#070e07]/90 shadow-2xl anim-modal max-h-[85vh] flex flex-col">
         <div className="absolute -top-24 -right-24 h-48 w-48 rounded-full bg-emerald-500/10 blur-3xl anim-breathe" />
         <div className="absolute -bottom-16 -left-16 h-32 w-32 rounded-full bg-cyan-500/8 blur-2xl anim-breathe delay-500" />
-        <div className="relative flex items-center justify-between border-b border-white/5 px-5 py-3.5">
+        <div className="relative flex items-center justify-between border-b border-white/5 px-5 py-3.5 flex-shrink-0">
           <h3 className="text-[15px] font-medium">{title}</h3>
           <button onClick={onClose} className="rounded-lg p-1.5 text-zinc-500 hover:bg-white/5 hover:text-zinc-300 transition hover:rotate-90 duration-300"><X className="h-4 w-4" /></button>
         </div>
-        <div className="relative p-5 max-h-[70vh] overflow-auto">{children}</div>
+        <div className="relative p-5 overflow-auto">{children}</div>
       </div>
     </div>
   );
@@ -667,7 +813,6 @@ function WorkoutForm({ initial, onSubmit, onDelete }: { initial?: Workout | null
   const [time, setTime] = useState(initial?.time ?? timeNow());
   const [title, setTitle] = useState(initial?.title ?? "Morning Run");
   const [notes, setNotes] = useState(initial?.notes ?? "");
-  
   const km = parseFloat(kmStr) || 0;
   const duration = parseInt(durStr) || 0;
   const steps = decodeSteps(type, km);
@@ -683,20 +828,10 @@ function WorkoutForm({ initial, onSubmit, onDelete }: { initial?: Workout | null
       </div>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Distance (km)">
-          <input
-            type="text" inputMode="decimal" placeholder="e.g. 2.5"
-            value={kmStr}
-            onChange={e => { const v = e.target.value; if (v === "" || /^\d*\.?\d*$/.test(v)) setKmStr(v); }}
-            className="w-full bg-transparent text-[22px] font-semibold outline-none"
-          />
+          <input type="text" inputMode="decimal" placeholder="e.g. 2.5" value={kmStr} onChange={e => { const v = e.target.value; if (v === "" || /^\d*\.?\d*$/.test(v)) setKmStr(v); }} className="w-full bg-transparent text-[22px] font-semibold outline-none" />
         </Field>
         <Field label="Duration (min)">
-          <input
-            type="text" inputMode="numeric" placeholder="e.g. 30"
-            value={durStr}
-            onChange={e => { const v = e.target.value; if (v === "" || /^\d*$/.test(v)) setDurStr(v); }}
-            className="w-full bg-transparent text-[22px] font-semibold outline-none"
-          />
+          <input type="text" inputMode="numeric" placeholder="e.g. 30" value={durStr} onChange={e => { const v = e.target.value; if (v === "" || /^\d*$/.test(v)) setDurStr(v); }} className="w-full bg-transparent text-[22px] font-semibold outline-none" />
         </Field>
       </div>
       <div className="grid grid-cols-3 gap-2">
@@ -722,6 +857,71 @@ function WorkoutForm({ initial, onSubmit, onDelete }: { initial?: Workout | null
         <button type="submit" disabled={km <= 0} className="flex items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-black hover:bg-emerald-500 transition active:scale-95 btn-ripple disabled:opacity-40"><Save className="h-4 w-4" /> Save to Today</button>
       </div>
       <p className="text-[11px] leading-snug text-zinc-500">All logs merge into the same daily journal. Steps decoded at 1,320 steps/km.</p>
+    </form>
+  );
+}
+
+function ExerciseForm({ onSubmit }: { onSubmit: (e: Omit<Exercise, "id" | "calories">) => void }) {
+  const [name, setName] = useState("Push-ups");
+  const [reps, setReps] = useState(20);
+  const [sets, setSets] = useState(3);
+  const [duration, setDuration] = useState(30);
+  const [time, setTime] = useState(timeNow());
+  const [notes, setNotes] = useState("");
+  const presets = ["Push-ups", "Pull-ups", "Squats", "Jaw Exercise", "Plank", "Jumping Jacks", "Burpees", "Sit-ups", "Lunges", "Arm Circles"];
+  const estCal = calcExerciseCalories(name, reps, sets);
+
+  return (
+    <form onSubmit={e => { e.preventDefault(); onSubmit({ name, reps, sets, duration, time, notes }); }} className="space-y-4">
+      <div className="flex flex-wrap gap-1.5">
+        {presets.map((pr, i) => (
+          <button key={pr} type="button" onClick={() => setName(pr)} className={`rounded-full px-3 py-1.5 text-[11px] ring-1 transition active:scale-90 anim-fade-scale ${name === pr ? "bg-violet-500/15 text-violet-200 ring-violet-500/30" : "bg-white/5 text-zinc-400 ring-white/10 hover:bg-white/10"}`} style={{ animationDelay: `${i * 30}ms` }}>{pr}</button>
+        ))}
+      </div>
+      <Field label="Exercise Name"><input value={name} onChange={e => setName(e.target.value)} className="w-full bg-transparent outline-none" /></Field>
+      <div className="grid grid-cols-3 gap-3">
+        <Field label="Sets"><input type="number" value={sets} onChange={e => setSets(Number(e.target.value))} className="w-full bg-transparent text-[20px] font-semibold outline-none" /></Field>
+        <Field label="Reps"><input type="number" value={reps} onChange={e => setReps(Number(e.target.value))} className="w-full bg-transparent text-[20px] font-semibold outline-none" /></Field>
+        <Field label="Sec/Set"><input type="number" value={duration} onChange={e => setDuration(Number(e.target.value))} className="w-full bg-transparent text-[20px] font-semibold outline-none" /></Field>
+      </div>
+      <div className="rounded-xl bg-violet-500/10 p-3 ring-1 ring-violet-500/20">
+        <div className="text-[11px] text-violet-400">Estimated calories</div>
+        <div className="text-[22px] font-semibold text-violet-300">{estCal}</div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Time"><input type="time" value={time} onChange={e => setTime(e.target.value)} className="w-full bg-transparent outline-none [color-scheme:dark]" /></Field>
+        <Field label="Notes"><input value={notes} onChange={e => setNotes(e.target.value)} className="w-full bg-transparent outline-none" placeholder="Optional" /></Field>
+      </div>
+      <button type="submit" className="w-full rounded-xl bg-violet-600 py-2.5 text-sm font-medium text-black hover:bg-violet-500 transition active:scale-95 btn-ripple">Add Exercise</button>
+    </form>
+  );
+}
+
+function SleepForm({ onSubmit }: { onSubmit: (s: Omit<SleepLog, "id" | "hours">) => void }) {
+  const [bedTime, setBedTime] = useState("22:00");
+  const [wakeTime, setWakeTime] = useState("06:00");
+  const [isNap, setIsNap] = useState(false);
+  const hours = calcSleepHours(bedTime, wakeTime);
+
+  return (
+    <form onSubmit={e => { e.preventDefault(); onSubmit({ bedTime, wakeTime, isNap }); }} className="space-y-4">
+      <div className="flex gap-2">
+        <button type="button" onClick={() => setIsNap(false)} className={`flex-1 rounded-xl py-2.5 text-sm ring-1 transition ${!isNap ? "bg-indigo-500/15 text-indigo-200 ring-indigo-500/30" : "bg-white/5 text-zinc-400 ring-white/10"}`}>
+          <Moon className="mx-auto h-4 w-4 mb-1" /> Night Sleep
+        </button>
+        <button type="button" onClick={() => setIsNap(true)} className={`flex-1 rounded-xl py-2.5 text-sm ring-1 transition ${isNap ? "bg-amber-500/15 text-amber-200 ring-amber-500/30" : "bg-white/5 text-zinc-400 ring-white/10"}`}>
+          <Sun className="mx-auto h-4 w-4 mb-1" /> Nap
+        </button>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label={isNap ? "Nap Start" : "Bed Time"}><input type="time" value={bedTime} onChange={e => setBedTime(e.target.value)} className="w-full bg-transparent text-[18px] font-semibold outline-none [color-scheme:dark]" /></Field>
+        <Field label={isNap ? "Wake Up" : "Wake Time"}><input type="time" value={wakeTime} onChange={e => setWakeTime(e.target.value)} className="w-full bg-transparent text-[18px] font-semibold outline-none [color-scheme:dark]" /></Field>
+      </div>
+      <div className="rounded-xl bg-indigo-500/10 p-4 ring-1 ring-indigo-500/20 text-center">
+        <div className="text-[11px] text-indigo-400">Total sleep</div>
+        <div className="text-[36px] font-semibold text-indigo-300">{hours}h</div>
+      </div>
+      <button type="submit" className="w-full rounded-xl bg-indigo-600 py-2.5 text-sm font-medium text-black hover:bg-indigo-500 transition active:scale-95 btn-ripple">Log Sleep</button>
     </form>
   );
 }
@@ -777,7 +977,7 @@ function FoodForm({ onSubmit, onClose }: { onSubmit: (f: Omit<Food, "id">) => vo
     ],
     custom: [],
   };
-  
+
   const quickAdd = (pr: { n: string; c: number; p: number; cb: number; f: number; m: Food["meal"] }) => {
     onSubmit({ name: pr.n, meal: pr.m, calories: pr.c, protein: pr.p, carbs: pr.cb, fat: pr.f, time });
     setAdded(prev => [...prev, { name: pr.n, calories: pr.c, protein: pr.p }]);
@@ -796,7 +996,6 @@ function FoodForm({ onSubmit, onClose }: { onSubmit: (f: Omit<Food, "id">) => vo
 
   return (
     <div className="space-y-4">
-      {/* Added items summary */}
       {added.length > 0 && (
         <div className="rounded-xl bg-emerald-500/10 p-3 ring-1 ring-emerald-500/20 anim-fade-scale">
           <div className="flex items-center justify-between mb-2">
@@ -813,7 +1012,6 @@ function FoodForm({ onSubmit, onClose }: { onSubmit: (f: Omit<Food, "id">) => vo
         </div>
       )}
 
-      {/* Meal tabs */}
       <div className="flex gap-1 rounded-xl bg-black/20 p-1 ring-1 ring-white/5">
         {(["breakfast","lunch","dinner","snack","custom"] as const).map(t => (
           <button key={t} type="button" onClick={() => { setTab(t); if (t === "custom") setShowCustom(true); else setShowCustom(false); }} className={`flex-1 rounded-lg px-1.5 py-1.5 text-[10px] capitalize transition ${tab === t ? "bg-emerald-500/20 text-emerald-200 ring-1 ring-emerald-500/30" : "text-zinc-500 hover:text-zinc-300"}`}>
@@ -822,7 +1020,6 @@ function FoodForm({ onSubmit, onClose }: { onSubmit: (f: Omit<Food, "id">) => vo
         ))}
       </div>
 
-      {/* Preset grid — tap to instantly add */}
       {tab !== "custom" && (
         <>
           <p className="text-[11px] text-zinc-500">Tap items to add them. Add as many as you want!</p>
@@ -843,7 +1040,6 @@ function FoodForm({ onSubmit, onClose }: { onSubmit: (f: Omit<Food, "id">) => vo
         </>
       )}
 
-      {/* Custom food entry */}
       {(tab === "custom" || showCustom) && (
         <div className="space-y-3 anim-fade-up">
           <div className="flex items-center justify-between">
@@ -868,14 +1064,12 @@ function FoodForm({ onSubmit, onClose }: { onSubmit: (f: Omit<Food, "id">) => vo
         </div>
       )}
 
-      {/* Add custom toggle for preset tabs */}
       {tab !== "custom" && !showCustom && (
         <button type="button" onClick={() => setShowCustom(true)} className="w-full rounded-xl border border-dashed border-white/10 py-2 text-[11px] text-zinc-500 hover:text-zinc-300 hover:border-white/20 transition">
           + Add custom food with calories & macros
         </button>
       )}
 
-      {/* Done button */}
       <div className="flex items-center justify-between pt-1 border-t border-white/5">
         <div className="text-[11px] text-zinc-500">{added.length} item{added.length !== 1 ? "s" : ""} added</div>
         <button type="button" onClick={onClose} className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-black hover:bg-emerald-500 transition active:scale-95 btn-ripple">
@@ -899,13 +1093,16 @@ function FinishDaySummary({ totals, day, onConfirm }: { totals: any; day: DayJou
   const stepsScore = Math.min(100, (totals.steps / 10000) * 100);
   const waterScore = Math.min(100, (totals.waterMl / 2500) * 100);
   const activityScore = Math.min(100, (totals.totalKm / 8) * 100);
+  const exerciseScore = Math.min(100, (day.exercises.length / 3) * 100);
   const nutritionScore = Math.min(100, (totals.protein / 100) * 80 + (totals.caloriesIn > 1600 && totals.caloriesIn < 2400 ? 20 : 10));
-  const rating = Math.round((stepsScore * 0.25 + waterScore * 0.25 + activityScore * 0.25 + nutritionScore * 0.25));
+  const sleepScore = Math.min(100, (totals.sleepHrs / 7) * 100);
+  const rating = Math.round((stepsScore * 0.15 + waterScore * 0.15 + activityScore * 0.15 + exerciseScore * 0.1 + nutritionScore * 0.15 + sleepScore * 0.3));
   const suggestions: { icon: any; text: string; color: string }[] = [];
-  if (totals.waterMl < 2000) suggestions.push({ icon: Droplets, text: "Increase hydration to 2.5L tomorrow – you were short by " + Math.round((2500 - totals.waterMl) / 100) / 10 + "L", color: "text-blue-400" });
+  if (totals.waterMl < 2000) suggestions.push({ icon: Droplets, text: "Increase hydration to 2.5L — you were short by " + Math.round((2500 - totals.waterMl) / 100) / 10 + "L", color: "text-blue-400" });
   if (totals.steps < 8000) suggestions.push({ icon: Footprints, text: "Add a 15-min evening walk to reach 10k steps", color: "text-cyan-400" });
-  if (totals.protein < 80) suggestions.push({ icon: Beef, text: "Boost protein to 90-110g for recovery", color: "text-orange-400" });
-  if (totals.totalKm < 3) suggestions.push({ icon: Activity, text: "Aim for at least 30 min of movement", color: "text-emerald-400" });
+  if (totals.protein < 55) suggestions.push({ icon: Beef, text: "Boost protein — add eggs, dal, or chicken/fish", color: "text-orange-400" });
+  if (totals.totalKm < 3 && day.exercises.length === 0) suggestions.push({ icon: Activity, text: "Aim for at least some movement today", color: "text-emerald-400" });
+  if (totals.sleepHrs < 6) suggestions.push({ icon: Moon, text: "Try to get 7-8 hours of sleep tonight", color: "text-indigo-400" });
   if (suggestions.length === 0) suggestions.push({ icon: Heart, text: "Excellent balance today! Maintain this routine.", color: "text-pink-400" });
   const grade = rating >= 85 ? "Excellent" : rating >= 70 ? "Good" : rating >= 55 ? "Fair" : "Needs Work";
 
@@ -930,16 +1127,18 @@ function FinishDaySummary({ totals, day, onConfirm }: { totals: any; day: DayJou
               </ResponsiveContainer>
             </div>
           </div>
-          <div className="mt-4 grid grid-cols-4 gap-2">
+          <div className="mt-4 grid grid-cols-3 gap-2">
             {[
               { l: "Steps", v: Math.round(stepsScore) },
               { l: "Water", v: Math.round(waterScore) },
               { l: "Move", v: Math.round(activityScore) },
+              { l: "Exercise", v: Math.round(exerciseScore) },
               { l: "Fuel", v: Math.round(nutritionScore) },
+              { l: "Sleep", v: Math.round(sleepScore) },
             ].map((s, i) => (
               <div key={s.l} className="rounded-lg bg-black/40 p-2 text-center ring-1 ring-white/5 anim-fade-up" style={{ animationDelay: `${400 + i * 80}ms` }}>
-                <div className="text-[11px] text-zinc-500">{s.l}</div>
-                <div className="text-[15px] font-semibold text-white"><AnimatedNumber value={s.v} /></div>
+                <div className="text-[10px] text-zinc-500">{s.l}</div>
+                <div className="text-[14px] font-semibold text-white"><AnimatedNumber value={s.v} /></div>
               </div>
             ))}
           </div>
@@ -951,8 +1150,10 @@ function FinishDaySummary({ totals, day, onConfirm }: { totals: any; day: DayJou
           {[
             { k: "Distance", v: `${totals.totalKm.toFixed(1)} km (${totals.steps.toLocaleString()} steps)` },
             { k: "Workouts", v: `${day.workouts.length} sessions` },
+            { k: "Exercises", v: `${day.exercises.length} logged` },
             { k: "Calories", v: `${totals.caloriesIn} in / ${totals.caloriesOut + 1650} out` },
-            { k: "Hydration", v: `${(totals.waterMl / 1000).toFixed(1)}L` },
+            { k: "Hydration", v: `${(totals.waterMl/1000).toFixed(1)}L` },
+            { k: "Sleep", v: `${totals.sleepHrs > 0 ? totals.sleepHrs.toFixed(1) + "h" : "—"}` },
           ].map(i => (
             <div key={i.k} className="flex items-center justify-between rounded-lg bg-white/[0.03] px-3 py-2 ring-1 ring-white/5">
               <span className="text-zinc-500">{i.k}</span>
