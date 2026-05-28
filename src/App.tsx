@@ -135,6 +135,7 @@ export default function App() {
   const [coachOpen, setCoachOpen] = useState(false);
   const [waterPop, setWaterPop] = useState(false);
   const [coachNotif, setCoachNotif] = useState<string | null>(null);
+  const [showStats, setShowStats] = useState(false);
   const notifCounter = useRef(0);
 
   const triggerCoachNotif = useCallback((event: string) => {
@@ -297,10 +298,29 @@ export default function App() {
           </div>
         </div>
 
+        {/* Today's Summary Bar — always visible */}
+        <div className="mb-5 anim-fade-up delay-75">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 backdrop-blur">
+              <span className="text-[11px] uppercase tracking-wider text-zinc-500">Today</span>
+              <span className="text-[15px] font-semibold text-emerald-300">{totals.totalKm.toFixed(1)} km</span>
+              <span className="text-zinc-600">|</span>
+              <span className="text-[13px] text-zinc-400">{totals.steps.toLocaleString()} steps</span>
+              <span className="text-zinc-600">|</span>
+              <span className="text-[13px] text-zinc-400">{totals.caloriesIn} cal</span>
+              <span className="text-zinc-600">|</span>
+              <span className="text-[13px] text-zinc-400">{(totals.waterMl/1000).toFixed(1)}L water</span>
+            </div>
+            <button onClick={() => setShowStats(!showStats)} className={`rounded-xl border px-3 py-2.5 text-sm transition active:scale-95 ${showStats ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300" : "border-white/10 bg-white/5 text-zinc-400 hover:bg-white/10 hover:text-zinc-300"}`}>
+              {showStats ? "Hide Totals" : "Show Totals"}
+            </button>
+          </div>
+        </div>
+
         {/* Main Grid */}
         <div className="grid grid-cols-12 gap-5">
           {/* Main Chart */}
-          <div className="col-span-12 xl:col-span-8 anim-fade-up delay-100">
+          <div className={`${showStats ? "col-span-12 xl:col-span-8" : "col-span-12"} anim-fade-up delay-100`}>
             <div className="relative overflow-hidden rounded-[28px] border border-emerald-900/30 bg-[#05130a]/70 p-5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04),0_20px_60px_-30px_rgba(16,185,129,0.5)] backdrop-blur-xl card-hover anim-shimmer">
               <div className="pointer-events-none absolute -top-24 -right-24 h-64 w-64 rounded-full bg-emerald-500/10 blur-3xl anim-breathe" />
               <div className="mb-4 flex items-center justify-between">
@@ -332,30 +352,32 @@ export default function App() {
             </div>
           </div>
 
-          {/* Right Stats */}
-          <div className="col-span-12 xl:col-span-4 grid grid-cols-2 xl:grid-cols-1 gap-3 auto-rows-fr">
-            {[
-              { label: "Total Distance", value: weekStats.totalDistance, unit: " km", icon: Footprints, color: "text-emerald-400", bg: "bg-emerald-500/10", border: "border-emerald-500/20", glow: "anim-pulse-glow" },
-              { label: "Running", value: weekStats.running, unit: " km", icon: Activity, color: "text-green-400", bg: "bg-green-500/10", border: "border-green-500/20", glow: "" },
-              { label: "Walking", value: weekStats.walking, unit: " km", icon: Watch, color: "text-cyan-400", bg: "bg-cyan-500/10", border: "border-cyan-500/20", glow: "" },
-              { label: "Calories Burned", value: weekStats.calories, unit: "", icon: Flame, color: "text-orange-400", bg: "bg-orange-500/10", border: "border-orange-500/20", glow: "" },
-              { label: "Active Days", value: weekStats.activeDays, unit: "/7", icon: Calendar, color: "text-amber-400", bg: "bg-amber-500/10", border: "border-amber-500/20", glow: "" },
-            ].map((s, i) => (
-              <div key={s.label} className={`group relative overflow-hidden rounded-2xl border ${s.border} bg-[#0a0f0a]/70 p-4 backdrop-blur transition hover:bg-[#0f1a0f]/80 card-hover anim-shimmer`} style={{ animationDelay: `${150 + i * 80}ms` }}>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-[11px] uppercase tracking-wider text-zinc-500">{s.label}</p>
-                    <p className={`mt-1.5 text-[22px] font-semibold leading-none ${s.color}`}>
-                      <AnimatedNumber value={s.value} />{s.unit}
-                    </p>
-                  </div>
-                  <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${s.bg} ring-1 ring-inset ring-white/5 transition-all group-hover:scale-110 group-hover:rotate-6 duration-300 ${s.glow}`}>
-                    <s.icon className={`h-5 w-5 ${s.color}`} />
+          {/* Right Stats — hidden by default */}
+          {showStats && (
+            <div className="col-span-12 xl:col-span-4 grid grid-cols-2 xl:grid-cols-1 gap-3 auto-rows-fr anim-fade-right">
+              {[
+                { label: "Total Distance", value: weekStats.totalDistance, unit: " km", icon: Footprints, color: "text-emerald-400", bg: "bg-emerald-500/10", border: "border-emerald-500/20", glow: "anim-pulse-glow" },
+                { label: "Running", value: weekStats.running, unit: " km", icon: Activity, color: "text-green-400", bg: "bg-green-500/10", border: "border-green-500/20", glow: "" },
+                { label: "Walking", value: weekStats.walking, unit: " km", icon: Watch, color: "text-cyan-400", bg: "bg-cyan-500/10", border: "border-cyan-500/20", glow: "" },
+                { label: "Calories Burned", value: weekStats.calories, unit: "", icon: Flame, color: "text-orange-400", bg: "bg-orange-500/10", border: "border-orange-500/20", glow: "" },
+                { label: "Active Days", value: weekStats.activeDays, unit: "/7", icon: Calendar, color: "text-amber-400", bg: "bg-amber-500/10", border: "border-amber-500/20", glow: "" },
+              ].map((s, i) => (
+                <div key={s.label} className={`group relative overflow-hidden rounded-2xl border ${s.border} bg-[#0a0f0a]/70 p-4 backdrop-blur transition hover:bg-[#0f1a0f]/80 card-hover anim-shimmer`} style={{ animationDelay: `${i * 80}ms` }}>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-[11px] uppercase tracking-wider text-zinc-500">{s.label}</p>
+                      <p className={`mt-1.5 text-[22px] font-semibold leading-none ${s.color}`}>
+                        <AnimatedNumber value={s.value} />{s.unit}
+                      </p>
+                    </div>
+                    <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${s.bg} ring-1 ring-inset ring-white/5 transition-all group-hover:scale-110 group-hover:rotate-6 duration-300 ${s.glow}`}>
+                      <s.icon className={`h-5 w-5 ${s.color}`} />
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
 
           {/* Quick Log */}
           <div className="col-span-12 anim-fade-up delay-300">
