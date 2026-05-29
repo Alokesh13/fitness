@@ -4,9 +4,9 @@ import {
   Pie, PieChart, RadialBar, RadialBarChart, ResponsiveContainer, Tooltip, XAxis, YAxis
 } from "recharts";
 import {
-  Activity, Apple, Award, Beef, Calendar, Check, Droplets, Dumbbell, Edit2, Flame,
+  Activity, AlertCircle, Apple, Award, Beef, Calendar, Check, Download, Droplets, Dumbbell, Edit2, Flame,
   Footprints, Heart, Moon, Plus, RotateCcw, Save, Sun, Target, Trash2, TrendingUp,
-  Utensils, Watch, X, Zap
+  Upload, Utensils, Watch, X, Zap
 } from "lucide-react";
 import AICoach from "./AICoach";
 
@@ -136,7 +136,56 @@ export default function App() {
   const [waterPop, setWaterPop] = useState(false);
   const [coachNotif, setCoachNotif] = useState<string | null>(null);
   const [showStats, setShowStats] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const [importMsg, setImportMsg] = useState<{ text: string; type: "success" | "error" } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const notifCounter = useRef(0);
+
+  const handleDownload = () => {
+    const payload = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      app: "AlokeshFitness",
+      data: journal,
+    };
+    const data = JSON.stringify(payload, null, 2);
+    const blob = new Blob([data], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `alokesh-fitness-backup-${todayISO()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setImportMsg({ text: `Bhal! ${Object.keys(journal).length} din-ta data download korli! 💾`, type: "success" });
+    setTimeout(() => setImportMsg(null), 4000);
+  };
+
+  const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const raw = ev.target?.result as string;
+        const parsed = JSON.parse(raw);
+        const data = parsed.data ?? parsed;
+        if (typeof data !== "object" || data === null) throw new Error("Invalid");
+        setJournal(data);
+        setShowImport(false);
+        setImportMsg({ text: `✅ Bhal korli! ${Object.keys(data).length} din-ta data import korli!`, type: "success" });
+        setTimeout(() => setImportMsg(null), 4000);
+      } catch {
+        setImportMsg({ text: `❌ Boka file! Valid AlokeshFitness backup nao. Try again.`, type: "error" });
+        setTimeout(() => setImportMsg(null), 4000);
+      }
+    };
+    reader.readAsText(file);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const dayCount = Object.keys(journal).length;
 
   const triggerCoachNotif = useCallback((event: string) => {
     notifCounter.current += 1;
@@ -263,9 +312,9 @@ export default function App() {
         <div className="absolute bottom-[20%] left-[40%] h-56 w-56 rounded-full bg-violet-500/4 blur-[70px] anim-float delay-500" />
       </div>
 
-      <div className="relative mx-auto max-w-[1440px] px-4 py-6 lg:px-8 lg:py-8">
+      <div className="relative mx-auto max-w-[1440px] px-3 sm:px-4 py-4 sm:py-6 lg:px-8 lg:py-8">
         {/* Header */}
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-4 anim-fade-down">
+        <div className="mb-4 sm:mb-6 flex flex-wrap items-center justify-between gap-3 anim-fade-down">
           <div className="flex items-center gap-3">
             <div className="relative">
               <div className="absolute -inset-1 rounded-2xl bg-emerald-500/20 blur-xl anim-breathe" />
@@ -274,8 +323,8 @@ export default function App() {
               </div>
             </div>
             <div>
-              <h1 className="text-[22px] font-semibold tracking-tight bg-gradient-to-r from-white via-emerald-200 to-cyan-200 bg-clip-text text-transparent anim-gradient-shift" style={{ backgroundSize: "200% 200%" }}>AlokeshFitness</h1>
-              <p className="text-xs text-zinc-400 -mt-1">Your Personal Health Journal</p>
+              <h1 className="text-[18px] sm:text-[22px] font-semibold tracking-tight bg-gradient-to-r from-white via-emerald-200 to-cyan-200 bg-clip-text text-transparent anim-gradient-shift" style={{ backgroundSize: "200% 200%" }}>AlokeshFitness</h1>
+              <p className="text-[10px] sm:text-xs text-zinc-400 -mt-1">Your Personal Health Journal</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -300,15 +349,15 @@ export default function App() {
 
         {/* Today's Summary Bar — always visible */}
         <div className="mb-5 anim-fade-up delay-75">
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 backdrop-blur">
-              <span className="text-[11px] uppercase tracking-wider text-zinc-500">Today</span>
-              <span className="text-[15px] font-semibold text-emerald-300">{totals.totalKm.toFixed(1)} km</span>
-              <span className="text-zinc-600">|</span>
-              <span className="text-[13px] text-zinc-400">{totals.steps.toLocaleString()} steps</span>
-              <span className="text-zinc-600">|</span>
-              <span className="text-[13px] text-zinc-400">{totals.caloriesIn} cal</span>
-              <span className="text-zinc-600">|</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.03] px-3 sm:px-4 py-2 backdrop-blur">
+              <span className="text-[10px] uppercase tracking-wider text-zinc-500">Today</span>
+              <span className="text-[14px] sm:text-[15px] font-semibold text-emerald-300">{totals.totalKm.toFixed(1)} km</span>
+              <span className="text-zinc-700">|</span>
+              <span className="text-[12px] sm:text-[13px] text-zinc-400">{totals.steps.toLocaleString()} steps</span>
+              <span className="text-zinc-700">|</span>
+              <span className="text-[12px] sm:text-[13px] text-zinc-400">{totals.caloriesIn} cal</span>
+              <span className="text-zinc-700">|</span>
               <span className="text-[13px] text-zinc-400">{(totals.waterMl/1000).toFixed(1)}L water</span>
             </div>
             <button onClick={() => setShowStats(!showStats)} className={`rounded-xl border px-3 py-2.5 text-sm transition active:scale-95 ${showStats ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300" : "border-white/10 bg-white/5 text-zinc-400 hover:bg-white/10 hover:text-zinc-300"}`}>
@@ -381,7 +430,7 @@ export default function App() {
 
           {/* Quick Log */}
           <div className="col-span-12 anim-fade-up delay-300">
-            <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3">
               {[
                 { k: "workout", label: "Log Run/Walk", icon: Activity, desc: `${totals.totalKm.toFixed(1)} km`, color: "from-emerald-600/20 to-green-600/20 hover:from-emerald-600/30 hover:to-green-600/30 border-emerald-500/20" },
                 { k: "exercise", label: "Exercises", icon: Dumbbell, desc: `${day.exercises.length} logged`, color: "from-violet-600/20 to-purple-600/20 hover:from-violet-600/30 hover:to-purple-600/30 border-violet-500/20" },
@@ -394,16 +443,16 @@ export default function App() {
                   <div className="p1 bg-emerald-400 bottom-1/2 left-1/2" />
                   <div className="p2 bg-cyan-400 bottom-1/2 left-1/2" />
                   <div className="p3 bg-white bottom-1/2 left-1/2" />
-                  <div className="relative rounded-[15px] bg-[#050a05]/90 p-4 backdrop-blur-xl">
+                  <div className="relative rounded-[15px] bg-[#050a05]/90 p-3 sm:p-4 backdrop-blur-xl">
                     <div className="flex items-start justify-between">
-                      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/5 ring-1 ring-white/10 transition-transform group-hover:scale-110 group-hover:rotate-12 duration-300">
-                        <b.icon className="h-4.5 w-4.5 text-zinc-300" />
+                      <div className="flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-lg bg-white/5 ring-1 ring-white/10 transition-transform group-hover:scale-110 group-hover:rotate-12 duration-300">
+                        <b.icon className="h-4 w-4 sm:h-4.5 sm:w-4.5 text-zinc-300" />
                       </div>
-                      <Plus className="h-4 w-4 text-zinc-600 transition-all group-hover:text-zinc-400 group-hover:rotate-90 duration-300" />
+                      <Plus className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-zinc-600 transition-all group-hover:text-zinc-400 group-hover:rotate-90 duration-300" />
                     </div>
-                    <div className="mt-3 text-left">
-                      <div className="text-[13px] font-medium text-zinc-200">{b.label}</div>
-                      <div className="text-xs text-zinc-500 mt-0.5">{b.desc}</div>
+                    <div className="mt-2 sm:mt-3 text-left">
+                      <div className="text-[12px] sm:text-[13px] font-medium text-zinc-200">{b.label}</div>
+                      <div className="text-[10px] sm:text-xs text-zinc-500 mt-0.5">{b.desc}</div>
                     </div>
                   </div>
                 </button>
@@ -419,7 +468,7 @@ export default function App() {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3.5">
               {day.workouts.slice(0, 8).map((w, idx) => (
-                <div key={w.id} className="group relative overflow-hidden rounded-[20px] border border-white/5 bg-[#07110a]/70 p-4 backdrop-blur-xl transition-all hover:border-emerald-500/20 hover:bg-[#0a170e]/80 card-hover anim-slide-up" style={{ animationDelay: `${450 + idx * 100}ms` }}>
+                <div key={w.id} className="group relative overflow-hidden rounded-[20px] border border-white/5 bg-[#07110a]/70 p-3 sm:p-4 backdrop-blur-xl transition-all hover:border-emerald-500/20 hover:bg-[#0a170e]/80 card-hover anim-slide-up" style={{ animationDelay: `${450 + idx * 100}ms` }}>
                   <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-emerald-500/5 blur-2xl transition-all duration-500 group-hover:bg-emerald-500/10 group-hover:scale-125" />
                   <div className="relative">
                     <div className="flex items-start justify-between">
@@ -726,11 +775,71 @@ export default function App() {
           </div>
         </div>
 
+        {/* Import feedback banner */}
+        {importMsg && (
+          <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-[55] max-w-md px-4 anim-fade-down`}>
+            <div className={`rounded-2xl px-4 py-2.5 text-[12px] font-medium shadow-2xl ring-1 backdrop-blur-xl ${
+              importMsg.type === "success"
+                ? "bg-emerald-950/95 text-emerald-200 ring-emerald-500/30"
+                : "bg-red-950/95 text-red-200 ring-red-500/30"
+            }`}>{importMsg.text}</div>
+          </div>
+        )}
+
+        {/* Hidden file input */}
+        <input ref={fileInputRef} type="file" accept="application/json,.json" className="hidden" onChange={handleUpload} />
+
+        {/* Import Confirmation Modal */}
+        {showImport && (
+          <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 backdrop-blur-xl anim-overlay">
+            <div className="relative w-full max-w-sm overflow-hidden rounded-[24px] border border-amber-500/20 bg-[#120a08]/95 shadow-2xl anim-modal">
+              <div className="absolute -top-24 -right-24 h-48 w-48 rounded-full bg-amber-500/10 blur-3xl anim-breathe" />
+              <div className="relative p-6">
+                <div className="flex items-start gap-3 mb-4">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/15 ring-1 ring-amber-500/30 flex-shrink-0">
+                    <AlertCircle className="h-5 w-5 text-amber-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-[15px] font-semibold text-white">Confirm Import</h3>
+                    <p className="text-xs text-zinc-400 mt-1">BOKACHODA! This will REPLACE all your current data with the backup file.</p>
+                  </div>
+                </div>
+                <div className="rounded-xl bg-black/30 p-3 ring-1 ring-white/5 text-[11px] text-zinc-300 mb-4">
+                  <div className="flex justify-between py-1"><span className="text-zinc-500">Current days:</span><span className="font-semibold">{dayCount}</span></div>
+                  <div className="border-t border-white/5 my-1" />
+                  <p className="text-amber-300">⚠️ Your current {dayCount} days will be lost. Make sure you want this!</p>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => { setShowImport(false); }} className="flex-1 rounded-xl bg-white/5 py-2.5 text-[13px] text-zinc-300 hover:bg-white/10 transition ring-1 ring-white/10 active:scale-95">
+                    Cancel
+                  </button>
+                  <button onClick={() => fileInputRef.current?.click()} className="flex-1 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 py-2.5 text-[13px] font-semibold text-black hover:from-amber-500 hover:to-orange-500 transition active:scale-95">
+                    Yes, Replace
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Footer */}
-        <div className="mt-8 flex items-center justify-between text-[11px] text-zinc-600 anim-fade-up delay-1000">
-          <div>Step decoding: 1 km ≈ 1,320 steps • Calories estimated via MET • Data stored locally</div>
-          <div className="flex items-center gap-3">
-            <button onClick={() => { localStorage.removeItem(STORAGE_KEY); location.reload(); }} className="hover:text-zinc-400 flex items-center gap-1 transition active:scale-95"><RotateCcw className="h-3 w-3" /> Clear all data</button>
+        <div className="mt-8 space-y-4 anim-fade-up delay-1000">
+          {/* Data management bar */}
+          <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-white/5 bg-white/[0.02] p-3">
+            <span className="text-[10px] uppercase tracking-wider text-zinc-500 mr-1">Data:</span>
+            <button onClick={handleDownload} className="btn-ripple flex items-center gap-1.5 rounded-lg bg-emerald-600/15 px-3 py-1.5 text-[11px] font-medium text-emerald-300 ring-1 ring-emerald-500/20 transition hover:bg-emerald-600/25 active:scale-95">
+              <Download className="h-3.5 w-3.5" /> Download Backup
+            </button>
+            <button onClick={() => setShowImport(true)} className="btn-ripple flex items-center gap-1.5 rounded-lg bg-violet-600/15 px-3 py-1.5 text-[11px] font-medium text-violet-300 ring-1 ring-violet-500/20 transition hover:bg-violet-600/25 active:scale-95">
+              <Upload className="h-3.5 w-3.5" /> Upload Backup
+            </button>
+            <div className="flex-1" />
+            <button onClick={() => { localStorage.removeItem(STORAGE_KEY); location.reload(); }} className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[11px] text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition active:scale-95">
+              <RotateCcw className="h-3 w-3" /> Clear
+            </button>
+          </div>
+          <div className="flex items-center justify-between text-[11px] text-zinc-600">
+            <div>Step decoding: 1 km ≈ 1,320 steps • Data stored locally</div>
             <span>© AlokeshFitness</span>
           </div>
         </div>
@@ -814,15 +923,15 @@ export default function App() {
 
 function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 backdrop-blur-xl anim-overlay">
-      <div className="relative w-full max-w-lg overflow-hidden rounded-[24px] border border-white/10 bg-[#070e07]/90 shadow-2xl anim-modal max-h-[85vh] flex flex-col">
+    <div className="fixed inset-0 z-50 grid place-items-end sm:place-items-center bg-black/70 p-0 sm:p-4 backdrop-blur-xl anim-overlay">
+      <div className="relative w-full sm:max-w-lg overflow-hidden sm:rounded-[24px] rounded-t-[24px] border border-white/10 bg-[#070e07]/95 shadow-2xl anim-modal max-h-[90vh] sm:max-h-[85vh] flex flex-col">
         <div className="absolute -top-24 -right-24 h-48 w-48 rounded-full bg-emerald-500/10 blur-3xl anim-breathe" />
         <div className="absolute -bottom-16 -left-16 h-32 w-32 rounded-full bg-cyan-500/8 blur-2xl anim-breathe delay-500" />
-        <div className="relative flex items-center justify-between border-b border-white/5 px-5 py-3.5 flex-shrink-0">
-          <h3 className="text-[15px] font-medium">{title}</h3>
+        <div className="relative flex items-center justify-between border-b border-white/5 px-4 sm:px-5 py-3 flex-shrink-0">
+          <h3 className="text-[14px] sm:text-[15px] font-medium">{title}</h3>
           <button onClick={onClose} className="rounded-lg p-1.5 text-zinc-500 hover:bg-white/5 hover:text-zinc-300 transition hover:rotate-90 duration-300"><X className="h-4 w-4" /></button>
         </div>
-        <div className="relative p-5 overflow-auto">{children}</div>
+        <div className="relative p-4 sm:p-5 overflow-auto">{children}</div>
       </div>
     </div>
   );
