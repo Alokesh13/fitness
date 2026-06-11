@@ -4,11 +4,12 @@ import {
   Pie, PieChart, RadialBar, RadialBarChart, ResponsiveContainer, Tooltip, XAxis, YAxis
 } from "recharts";
 import {
-  Activity, AlertCircle, Apple, Award, Beef, Calendar, Check, Download, Droplets, Dumbbell, Edit2, Flame,
-  Footprints, Heart, Moon, Plus, RotateCcw, Save, Sun, Target, Trash2, TrendingUp,
-  Upload, Utensils, Watch, X, Zap
+  Activity, AlertCircle, Apple, Award, Beef, Calendar, CalendarOff, Check, Cloud, CloudOff, CloudUpload, CloudDownload,
+  Copy, Download, Droplets, Dumbbell, Edit2, Flame, Footprints, Heart, Loader2, Moon, Plus, RotateCcw,
+  Save, Sun, Target, Trash2, TrendingUp, Upload, Utensils, Watch, X, Zap
 } from "lucide-react";
 import AICoach from "./AICoach";
+import { pushJournal, pullJournal, generateSyncCode } from "./utils/supabase";
 
 /* ---------- Types ---------- */
 type Workout = {
@@ -66,7 +67,18 @@ type DayJournal = {
   sleepLogs: SleepLog[];
   finished?: boolean;
   rating?: number;
+  skipped?: { reason: string; emoji: string };
 };
+
+const SKIP_REASONS = [
+  { reason: "Rain Day", emoji: "🌧️" },
+  { reason: "Sick", emoji: "🤒" },
+  { reason: "Not Home / Travel", emoji: "✈️" },
+  { reason: "Injured", emoji: "🩹" },
+  { reason: "Rest Day", emoji: "😴" },
+  { reason: "Too Busy", emoji: "⏰" },
+  { reason: "Other", emoji: "🚫" },
+];
 
 /* ---------- Helpers ---------- */
 const STORAGE_KEY = "alokesh-fitness-v1";
@@ -131,6 +143,8 @@ export default function App() {
   const [date, setDate] = useState(todayISO());
   const [showAdd, setShowAdd] = useState<"workout" | "food" | "water" | "sleep" | "exercise" | null>(null);
   const [editingWorkout, setEditingWorkout] = useState<Workout | null>(null);
+  const [editingExercise, setEditingExercise] = useState<Exercise | null>(null);
+  const [showSkip, setShowSkip] = useState(false);
   const [showFinish, setShowFinish] = useState(false);
   const [coachOpen, setCoachOpen] = useState(false);
   const [waterPop, setWaterPop] = useState(false);
@@ -140,6 +154,57 @@ export default function App() {
   const [importMsg, setImportMsg] = useState<{ text: string; type: "success" | "error" } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const notifCounter = useRef(0);
+
+  // ─── Cloud Sync ───
+  const [showCloud, setShowCloud] = useState(false);
+  const [syncCode, setSyncCode] = useState<string>(() => localStorage.getItem("alokesh-sync-code") || "");
+  const [syncing, setSyncing] = useState(false);
+  const [lastSync, setLastSync] = useState<string>(() => localStorage.getItem("alokesh-last-sync") || "");
+  const [autoSync, setAutoSync] = useState<boolean>(() => localStorage.getItem("alokesh-auto-sync") === "true");
+
+  useEffect(() => { if (syncCode) localStorage.setItem("alokesh-sync-code", syncCode); }, [syncCode]);
+  useEffect(() => { localStorage.setItem("alokesh-auto-sync", String(autoSync)); }, [autoSync]);
+
+  const doPush = async (code?: string) => {
+    const useCode = code || syncCode;
+    if (!useCode) { setImportMsg({ text: "❌ Sync code lagei! Generate or enter one.", type: "error" }); setTimeout(() => setImportMsg(null), 4000); return; }
+    setSyncing(true);
+    const res = await pushJournal(useCode, journal);
+    setSyncing(false);
+    if (res.ok) {
+      const now = new Date().toLocaleString();
+      setLastSync(now);
+      localStorage.setItem("alokesh-last-sync", now);
+      setImportMsg({ text: `☁️ Bhal! Cloud-t save korli! ${Object.keys(journal).length} din-ta uploaded.`, type: "success" });
+    } else {
+      setImportMsg({ text: `❌ Cloud save fail: ${res.error}`, type: "error" });
+    }
+    setTimeout(() => setImportMsg(null), 4500);
+  };
+
+  const doPull = async () => {
+    if (!syncCode) { setImportMsg({ text: "❌ Sync code lagei! Enter your code first.", type: "error" }); setTimeout(() => setImportMsg(null), 4000); return; }
+    setSyncing(true);
+    const res = await pullJournal(syncCode);
+    setSyncing(false);
+    if (res.ok && res.data) {
+      setJournal(res.data);
+      const now = new Date().toLocaleString();
+      setLastSync(now);
+      localStorage.setItem("alokesh-last-sync", now);
+      setShowCloud(false);
+      setImportMsg({ text: `☁️ Bhal korli! ${Object.keys(res.data).length} din-ta cloud-r pora load korli!`, type: "success" });
+    } else {
+      setImportMsg({ text: `❌ Cloud load fail: ${res.error}`, type: "error" });
+    }
+    setTimeout(() => setImportMsg(null), 4500);
+  };
+
+  const createSyncCode = () => {
+    const code = generateSyncCode();
+    setSyncCode(code);
+    doPush(code);
+  };
 
   const handleDownload = () => {
     const payload = {
@@ -196,6 +261,16 @@ export default function App() {
 
   useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(journal)); }, [journal]);
 
+  // Auto-sync to cloud (debounced) when enabled
+  const autoSyncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!autoSync || !syncCode) return;
+    if (autoSyncTimer.current) clearTimeout(autoSyncTimer.current);
+    autoSyncTimer.current = setTimeout(() => { doPush(); }, 2500);
+    return () => { if (autoSyncTimer.current) clearTimeout(autoSyncTimer.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [journal, autoSync, syncCode]);
+
   const totals = useMemo(() => {
     const runKm = day.workouts.filter(w => w.type === "run" || w.type === "hike").reduce((a, b) => a + b.km, 0);
     const walkKm = day.workouts.filter(w => w.type === "walk" || w.type === "recovery").reduce((a, b) => a + b.km, 0);
@@ -228,6 +303,64 @@ export default function App() {
     };
   }, [last14, journal]);
 
+  // ─── Running Streak ───
+  // Counts consecutive days (back from today) where user ran.
+  // A skipped day OR a no-run day breaks the streak.
+  const streak = useMemo(() => {
+    const hasRun = (iso: string) => {
+      const j = journal[iso];
+      if (!j) return false;
+      if (j.skipped) return false; // skipped days break streak
+      return j.workouts.some(w => (w.type === "run" || w.type === "hike") && w.km > 0);
+    };
+    const isSkipped = (iso: string) => !!journal[iso]?.skipped;
+
+    let count = 0;
+    const cur = new Date();
+    // Grace for today: if today has no run yet, start counting from yesterday
+    const todayIso = cur.toISOString().slice(0, 10);
+    if (!hasRun(todayIso) && !isSkipped(todayIso)) cur.setDate(cur.getDate() - 1);
+
+    // Count backwards
+    for (let i = 0; i < 365; i++) {
+      const iso = cur.toISOString().slice(0, 10);
+      if (hasRun(iso)) { count++; cur.setDate(cur.getDate() - 1); }
+      else break;
+    }
+
+    // Longest streak (all-time)
+    const allDates = Object.keys(journal).sort();
+    let longest = 0, run = 0;
+    if (allDates.length > 0) {
+      const start = new Date(allDates[0]);
+      const end = new Date();
+      const d = new Date(start);
+      while (d <= end) {
+        const iso = d.toISOString().slice(0, 10);
+        if (hasRun(iso)) { run++; longest = Math.max(longest, run); }
+        else run = 0;
+        d.setDate(d.getDate() + 1);
+      }
+    }
+    return { current: count, longest };
+  }, [journal]);
+
+  const setSkipDay = (reason: string, emoji: string) => {
+    setJournal(j => {
+      const d = j[date] ?? { date, workouts: [], exercises: [], foods: [], water: [], sleepLogs: [] };
+      return { ...j, [date]: { ...d, skipped: { reason, emoji } } };
+    });
+    setShowSkip(false);
+    setTimeout(() => triggerCoachNotif("skip"), 600);
+  };
+  const unSkipDay = () => {
+    setJournal(j => {
+      const d = j[date]; if (!d) return j;
+      const { skipped, ...rest } = d;
+      return { ...j, [date]: rest as DayJournal };
+    });
+  };
+
   const addWorkout = (w: Omit<Workout, "id" | "steps" | "pace" | "calories">) => {
     const workout: Workout = { ...w, id: uid(), steps: decodeSteps(w.type, w.km), pace: calcPace(w.duration, w.km), calories: calcCalories(w.type, w.km) };
     setJournal(j => ({ ...j, [date]: { ...day, workouts: [workout, ...day.workouts] } }));
@@ -240,11 +373,15 @@ export default function App() {
   };
   const deleteWorkout = (id: string) => { setJournal(j => ({ ...j, [date]: { ...day, workouts: day.workouts.filter(w => w.id !== id) } })); };
 
-  const addExercise = (e: Omit<Exercise, "id" | "calories">) => {
-    const ex: Exercise = { ...e, id: uid(), calories: calcExerciseCalories(e.name, e.reps, e.sets) };
+  const addExercise = (e: Omit<Exercise, "id">) => {
+    const ex: Exercise = { ...e, id: uid() };
     setJournal(j => ({ ...j, [date]: { ...day, exercises: [ex, ...day.exercises] } }));
     setShowAdd(null);
     setTimeout(() => triggerCoachNotif("exercise"), 600);
+  };
+  const updateExercise = (e: Exercise) => {
+    setJournal(j => ({ ...j, [date]: { ...day, exercises: day.exercises.map(x => x.id === e.id ? e : x) } }));
+    setEditingExercise(null);
   };
   const deleteExercise = (id: string) => { setJournal(j => ({ ...j, [date]: { ...day, exercises: day.exercises.filter(e => e.id !== id) } })); };
 
@@ -328,6 +465,12 @@ export default function App() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {/* Streak Badge */}
+            <div className={`flex items-center gap-1.5 rounded-xl border px-3 py-2 backdrop-blur transition-all ${streak.current > 0 ? "border-orange-500/30 bg-orange-500/10" : "border-white/10 bg-white/[0.03]"}`} title={`Longest streak: ${streak.longest} days`}>
+              <Flame className={`h-4 w-4 ${streak.current > 0 ? "text-orange-400 anim-float" : "text-zinc-600"}`} />
+              <span className={`text-sm font-semibold ${streak.current > 0 ? "text-orange-300" : "text-zinc-500"}`}>{streak.current}</span>
+              <span className="text-[10px] text-zinc-500 hidden sm:inline">day{streak.current !== 1 ? "s" : ""}</span>
+            </div>
             <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 backdrop-blur transition-all hover:border-white/20 hover:bg-white/[0.05]">
               <Calendar className="h-4 w-4 text-zinc-400" />
               <input type="date" value={date} onChange={e => setDate(e.target.value)} className="bg-transparent text-sm outline-none [color-scheme:dark]" />
@@ -363,8 +506,29 @@ export default function App() {
             <button onClick={() => setShowStats(!showStats)} className={`rounded-xl border px-3 py-2.5 text-sm transition active:scale-95 ${showStats ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300" : "border-white/10 bg-white/5 text-zinc-400 hover:bg-white/10 hover:text-zinc-300"}`}>
               {showStats ? "Hide Totals" : "Show Totals"}
             </button>
+            {!day.skipped && (
+              <button onClick={() => setShowSkip(true)} className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2.5 text-sm text-amber-300 transition hover:bg-amber-500/20 active:scale-95 flex items-center gap-1.5">
+                <CalendarOff className="h-4 w-4" /> Skip Day
+              </button>
+            )}
           </div>
         </div>
+
+        {/* Skipped Day Banner */}
+        {day.skipped && (
+          <div className="mb-5 anim-fade-scale">
+            <div className="flex items-center justify-between rounded-2xl border border-amber-500/30 bg-gradient-to-r from-amber-950/60 to-orange-950/40 px-4 py-3 backdrop-blur">
+              <div className="flex items-center gap-3">
+                <div className="text-2xl anim-float">{day.skipped.emoji}</div>
+                <div>
+                  <div className="text-[14px] font-semibold text-amber-200">Day Skipped — {day.skipped.reason}</div>
+                  <div className="text-[11px] text-amber-400/70">⚠️ Streak broken for this day. No worries, tomorrow-ta kor!</div>
+                </div>
+              </div>
+              <button onClick={unSkipDay} className="rounded-lg bg-white/5 px-3 py-1.5 text-[12px] text-zinc-300 hover:bg-white/10 transition ring-1 ring-white/10 active:scale-95">Undo Skip</button>
+            </div>
+          </div>
+        )}
 
         {/* Main Grid */}
         <div className="grid grid-cols-12 gap-5">
@@ -410,6 +574,8 @@ export default function App() {
                 { label: "Walking", value: weekStats.walking, unit: " km", icon: Watch, color: "text-cyan-400", bg: "bg-cyan-500/10", border: "border-cyan-500/20", glow: "" },
                 { label: "Calories Burned", value: weekStats.calories, unit: "", icon: Flame, color: "text-orange-400", bg: "bg-orange-500/10", border: "border-orange-500/20", glow: "" },
                 { label: "Active Days", value: weekStats.activeDays, unit: "/7", icon: Calendar, color: "text-amber-400", bg: "bg-amber-500/10", border: "border-amber-500/20", glow: "" },
+                { label: "Run Streak", value: streak.current, unit: ` 🔥`, icon: Flame, color: "text-orange-400", bg: "bg-orange-500/10", border: "border-orange-500/20", glow: streak.current > 0 ? "anim-pulse-glow" : "" },
+                { label: "Longest Streak", value: streak.longest, unit: " days", icon: Award, color: "text-yellow-400", bg: "bg-yellow-500/10", border: "border-yellow-500/20", glow: "" },
               ].map((s, i) => (
                 <div key={s.label} className={`group relative overflow-hidden rounded-2xl border ${s.border} bg-[#0a0f0a]/70 p-4 backdrop-blur transition hover:bg-[#0f1a0f]/80 card-hover anim-shimmer`} style={{ animationDelay: `${i * 80}ms` }}>
                   <div className="flex items-center justify-between">
@@ -525,7 +691,10 @@ export default function App() {
                       <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-500/15 text-violet-400 ring-1 ring-inset ring-white/5">
                         <Dumbbell className="h-4 w-4" />
                       </div>
-                      <button onClick={() => deleteExercise(ex.id)} className="opacity-0 group-hover:opacity-100 p-1 text-zinc-600 hover:text-red-400 transition"><Trash2 className="h-3 w-3" /></button>
+                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition">
+                        <button onClick={() => setEditingExercise(ex)} className="p-1 text-zinc-600 hover:text-violet-400 transition"><Edit2 className="h-3 w-3" /></button>
+                        <button onClick={() => deleteExercise(ex.id)} className="p-1 text-zinc-600 hover:text-red-400 transition"><Trash2 className="h-3 w-3" /></button>
+                      </div>
                     </div>
                     <div className="mt-2.5">
                       <div className="text-[13px] font-medium text-zinc-200 truncate">{ex.name}</div>
@@ -789,6 +958,95 @@ export default function App() {
         {/* Hidden file input */}
         <input ref={fileInputRef} type="file" accept="application/json,.json" className="hidden" onChange={handleUpload} />
 
+        {/* Cloud Sync Modal */}
+        {showCloud && (
+          <div className="fixed inset-0 z-50 grid place-items-end sm:place-items-center bg-black/70 p-0 sm:p-4 backdrop-blur-xl anim-overlay">
+            <div className="relative w-full sm:max-w-md overflow-hidden rounded-t-[24px] sm:rounded-[24px] border border-sky-500/20 bg-[#06121a]/95 shadow-2xl anim-modal max-h-[90vh] flex flex-col">
+              <div className="absolute -top-24 -right-24 h-48 w-48 rounded-full bg-sky-500/10 blur-3xl anim-breathe" />
+              <div className="relative flex items-center justify-between border-b border-white/5 px-5 py-3.5 flex-shrink-0">
+                <h3 className="text-[15px] font-medium flex items-center gap-2"><Cloud className="h-4 w-4 text-sky-400" /> Cloud Sync</h3>
+                <button onClick={() => setShowCloud(false)} className="rounded-lg p-1.5 text-zinc-500 hover:bg-white/5 hover:text-zinc-300 transition"><X className="h-4 w-4" /></button>
+              </div>
+              <div className="relative p-5 overflow-auto space-y-4">
+                <p className="text-xs text-zinc-400">Sync your data across all devices using a unique code. Save your code somewhere safe — anyone with it can access your data.</p>
+
+                {!syncCode ? (
+                  <div className="space-y-3">
+                    <button onClick={createSyncCode} disabled={syncing} className="btn-ripple w-full flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-sky-600 to-cyan-600 py-3 text-sm font-semibold text-black hover:from-sky-500 hover:to-cyan-500 transition active:scale-95 disabled:opacity-50">
+                      {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CloudUpload className="h-4 w-4" />} Create New Sync Code & Upload
+                    </button>
+                    <div className="flex items-center gap-2 text-[11px] text-zinc-600"><div className="flex-1 h-px bg-white/5" />OR<div className="flex-1 h-px bg-white/5" /></div>
+                    <div>
+                      <label className="text-[10px] uppercase tracking-wider text-zinc-500">Have a code already?</label>
+                      <div className="mt-1.5 flex gap-2">
+                        <input
+                          value={syncCode}
+                          onChange={e => setSyncCode(e.target.value.toUpperCase())}
+                          placeholder="ALKH-XXXX-XXXX"
+                          className="flex-1 rounded-xl bg-black/40 px-3 py-2.5 text-sm outline-none ring-1 ring-white/10 focus:ring-sky-500/50 transition font-mono"
+                        />
+                      </div>
+                      <button onClick={doPull} disabled={syncing || !syncCode} className="mt-2 btn-ripple w-full flex items-center justify-center gap-2 rounded-xl bg-violet-600/20 py-2.5 text-[13px] font-medium text-violet-300 ring-1 ring-violet-500/20 hover:bg-violet-600/30 transition active:scale-95 disabled:opacity-40">
+                        {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CloudDownload className="h-4 w-4" />} Load Data From Cloud
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {/* Sync code display */}
+                    <div className="rounded-xl bg-black/30 p-4 ring-1 ring-sky-500/20">
+                      <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">Your Sync Code</div>
+                      <div className="flex items-center justify-between gap-2">
+                        <code className="text-[18px] font-mono font-semibold text-sky-300 tracking-wider">{syncCode}</code>
+                        <button onClick={() => { navigator.clipboard?.writeText(syncCode); setImportMsg({ text: "📋 Code copied!", type: "success" }); setTimeout(() => setImportMsg(null), 2500); }} className="rounded-lg bg-white/5 p-2 hover:bg-white/10 transition active:scale-90"><Copy className="h-3.5 w-3.5 text-zinc-300" /></button>
+                      </div>
+                      {lastSync && <div className="mt-2 text-[10px] text-zinc-500">Last synced: {lastSync}</div>}
+                    </div>
+
+                    {/* Push / Pull */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <button onClick={() => doPush()} disabled={syncing} className="btn-ripple flex items-center justify-center gap-1.5 rounded-xl bg-sky-600/20 py-2.5 text-[13px] font-medium text-sky-300 ring-1 ring-sky-500/20 hover:bg-sky-600/30 transition active:scale-95 disabled:opacity-40">
+                        {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CloudUpload className="h-4 w-4" />} Save to Cloud
+                      </button>
+                      <button onClick={doPull} disabled={syncing} className="btn-ripple flex items-center justify-center gap-1.5 rounded-xl bg-violet-600/20 py-2.5 text-[13px] font-medium text-violet-300 ring-1 ring-violet-500/20 hover:bg-violet-600/30 transition active:scale-95 disabled:opacity-40">
+                        {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CloudDownload className="h-4 w-4" />} Load from Cloud
+                      </button>
+                    </div>
+
+                    {/* Auto-sync toggle */}
+                    <button onClick={() => setAutoSync(!autoSync)} className="w-full flex items-center justify-between rounded-xl bg-black/20 px-4 py-3 ring-1 ring-white/5 transition hover:bg-black/30">
+                      <div className="flex items-center gap-2">
+                        <Cloud className={`h-4 w-4 ${autoSync ? "text-emerald-400" : "text-zinc-500"}`} />
+                        <div className="text-left">
+                          <div className="text-[13px] text-zinc-200">Auto-Sync</div>
+                          <div className="text-[10px] text-zinc-500">Auto-save to cloud when you log</div>
+                        </div>
+                      </div>
+                      <div className={`relative h-6 w-11 rounded-full transition ${autoSync ? "bg-emerald-500" : "bg-white/10"}`}>
+                        <div className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${autoSync ? "left-[22px]" : "left-0.5"}`} />
+                      </div>
+                    </button>
+
+                    {/* Enter different code */}
+                    <details className="group">
+                      <summary className="cursor-pointer text-[11px] text-zinc-500 hover:text-zinc-300 transition list-none">↻ Use a different sync code</summary>
+                      <div className="mt-2 flex gap-2">
+                        <input
+                          defaultValue=""
+                          onChange={e => setSyncCode(e.target.value.toUpperCase())}
+                          placeholder="ALKH-XXXX-XXXX"
+                          className="flex-1 rounded-xl bg-black/40 px-3 py-2 text-[13px] outline-none ring-1 ring-white/10 focus:ring-sky-500/50 transition font-mono"
+                        />
+                        <button onClick={doPull} className="rounded-xl bg-violet-600 px-3 py-2 text-[12px] font-medium text-white hover:bg-violet-500 transition">Load</button>
+                      </div>
+                    </details>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Import Confirmation Modal */}
         {showImport && (
           <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 backdrop-blur-xl anim-overlay">
@@ -827,11 +1085,14 @@ export default function App() {
           {/* Data management bar */}
           <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-white/5 bg-white/[0.02] p-3">
             <span className="text-[10px] uppercase tracking-wider text-zinc-500 mr-1">Data:</span>
+            <button onClick={() => setShowCloud(true)} className="btn-ripple flex items-center gap-1.5 rounded-lg bg-sky-600/15 px-3 py-1.5 text-[11px] font-medium text-sky-300 ring-1 ring-sky-500/20 transition hover:bg-sky-600/25 active:scale-95">
+              {syncCode ? <Cloud className="h-3.5 w-3.5" /> : <CloudOff className="h-3.5 w-3.5" />} Cloud Sync {syncCode && <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />}
+            </button>
             <button onClick={handleDownload} className="btn-ripple flex items-center gap-1.5 rounded-lg bg-emerald-600/15 px-3 py-1.5 text-[11px] font-medium text-emerald-300 ring-1 ring-emerald-500/20 transition hover:bg-emerald-600/25 active:scale-95">
-              <Download className="h-3.5 w-3.5" /> Download Backup
+              <Download className="h-3.5 w-3.5" /> Download
             </button>
             <button onClick={() => setShowImport(true)} className="btn-ripple flex items-center gap-1.5 rounded-lg bg-violet-600/15 px-3 py-1.5 text-[11px] font-medium text-violet-300 ring-1 ring-violet-500/20 transition hover:bg-violet-600/25 active:scale-95">
-              <Upload className="h-3.5 w-3.5" /> Upload Backup
+              <Upload className="h-3.5 w-3.5" /> Upload
             </button>
             <div className="flex-1" />
             <button onClick={() => { localStorage.removeItem(STORAGE_KEY); location.reload(); }} className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[11px] text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition active:scale-95">
@@ -873,9 +1134,18 @@ export default function App() {
           />
         </Modal>
       )}
-      {showAdd === "exercise" && (
-        <Modal title="Log Exercise" onClose={() => setShowAdd(null)}>
-          <ExerciseForm onSubmit={addExercise} />
+      {(showAdd === "exercise" || editingExercise) && (
+        <Modal title={editingExercise ? "Edit Exercise" : "Log Exercise"} onClose={() => { setShowAdd(null); setEditingExercise(null); }}>
+          <ExerciseForm
+            initial={editingExercise}
+            onSubmit={(data) => editingExercise ? updateExercise({ ...editingExercise, ...data }) : addExercise(data)}
+            onDelete={editingExercise ? () => { deleteExercise(editingExercise.id); setEditingExercise(null); } : undefined}
+          />
+        </Modal>
+      )}
+      {showSkip && (
+        <Modal title="Skip This Day" onClose={() => setShowSkip(false)}>
+          <SkipDayForm onSelect={setSkipDay} />
         </Modal>
       )}
       {showAdd === "food" && (
@@ -992,39 +1262,79 @@ function WorkoutForm({ initial, onSubmit, onDelete }: { initial?: Workout | null
   );
 }
 
-function ExerciseForm({ onSubmit }: { onSubmit: (e: Omit<Exercise, "id" | "calories">) => void }) {
-  const [name, setName] = useState("Push-ups");
-  const [reps, setReps] = useState(20);
-  const [sets, setSets] = useState(3);
-  const [duration, setDuration] = useState(30);
-  const [time, setTime] = useState(timeNow());
-  const [notes, setNotes] = useState("");
-  const presets = ["Push-ups", "Pull-ups", "Squats", "Jaw Exercise", "Plank", "Jumping Jacks", "Burpees", "Sit-ups", "Lunges", "Arm Circles"];
+function ExerciseForm({ initial, onSubmit, onDelete }: { initial?: Exercise | null; onSubmit: (e: Omit<Exercise, "id">) => void; onDelete?: () => void }) {
+  const [name, setName] = useState(initial?.name ?? "Push-ups");
+  const [reps, setReps] = useState(initial?.reps ?? 20);
+  const [sets, setSets] = useState(initial?.sets ?? 3);
+  const [duration, setDuration] = useState(initial?.duration ?? 30);
+  const [time, setTime] = useState(initial?.time ?? timeNow());
+  const [notes, setNotes] = useState(initial?.notes ?? "");
+  // Custom calories — auto-estimate, but user can override
+  const [customCal, setCustomCal] = useState(false);
+  const [calOverride, setCalOverride] = useState(initial?.calories ?? 0);
   const estCal = calcExerciseCalories(name, reps, sets);
+  const finalCal = customCal ? calOverride : estCal;
+  const presets = ["Push-ups", "Pull-ups", "Squats", "Jaw Exercise", "Plank", "Jumping Jacks", "Burpees", "Sit-ups", "Lunges", "Arm Circles", "Dips", "Crunches", "Mountain Climbers", "Calf Raises"];
 
   return (
-    <form onSubmit={e => { e.preventDefault(); onSubmit({ name, reps, sets, duration, time, notes }); }} className="space-y-4">
+    <form onSubmit={e => { e.preventDefault(); if (!name.trim()) return; onSubmit({ name, reps, sets, duration, time, notes, calories: finalCal }); }} className="space-y-4">
       <div className="flex flex-wrap gap-1.5">
         {presets.map((pr, i) => (
           <button key={pr} type="button" onClick={() => setName(pr)} className={`rounded-full px-3 py-1.5 text-[11px] ring-1 transition active:scale-90 anim-fade-scale ${name === pr ? "bg-violet-500/15 text-violet-200 ring-violet-500/30" : "bg-white/5 text-zinc-400 ring-white/10 hover:bg-white/10"}`} style={{ animationDelay: `${i * 30}ms` }}>{pr}</button>
         ))}
       </div>
-      <Field label="Exercise Name"><input value={name} onChange={e => setName(e.target.value)} className="w-full bg-transparent outline-none" /></Field>
+      <Field label="Exercise Name (custom or preset)"><input value={name} onChange={e => setName(e.target.value)} className="w-full bg-transparent outline-none" placeholder="e.g. Diamond Push-ups" /></Field>
       <div className="grid grid-cols-3 gap-3">
         <Field label="Sets"><input type="number" value={sets} onChange={e => setSets(Number(e.target.value))} className="w-full bg-transparent text-[20px] font-semibold outline-none" /></Field>
         <Field label="Reps"><input type="number" value={reps} onChange={e => setReps(Number(e.target.value))} className="w-full bg-transparent text-[20px] font-semibold outline-none" /></Field>
         <Field label="Sec/Set"><input type="number" value={duration} onChange={e => setDuration(Number(e.target.value))} className="w-full bg-transparent text-[20px] font-semibold outline-none" /></Field>
       </div>
+      {/* Calories — toggle between auto-estimate and custom */}
       <div className="rounded-xl bg-violet-500/10 p-3 ring-1 ring-violet-500/20">
-        <div className="text-[11px] text-violet-400">Estimated calories</div>
-        <div className="text-[22px] font-semibold text-violet-300">{estCal}</div>
+        <div className="flex items-center justify-between mb-1.5">
+          <div className="text-[11px] text-violet-400">{customCal ? "Custom calories" : "Estimated calories"}</div>
+          <button type="button" onClick={() => { setCustomCal(!customCal); if (!customCal) setCalOverride(estCal); }} className="text-[10px] text-violet-300 underline hover:text-violet-200 transition">
+            {customCal ? "Use auto-estimate" : "Edit calories"}
+          </button>
+        </div>
+        {customCal ? (
+          <input type="number" value={calOverride || ""} onChange={e => setCalOverride(Number(e.target.value))} placeholder="Enter calories" className="w-full bg-transparent text-[22px] font-semibold text-violet-300 outline-none" />
+        ) : (
+          <div className="text-[22px] font-semibold text-violet-300">{estCal} <span className="text-[12px] text-zinc-500">kcal</span></div>
+        )}
       </div>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Time"><input type="time" value={time} onChange={e => setTime(e.target.value)} className="w-full bg-transparent outline-none [color-scheme:dark]" /></Field>
         <Field label="Notes"><input value={notes} onChange={e => setNotes(e.target.value)} className="w-full bg-transparent outline-none" placeholder="Optional" /></Field>
       </div>
-      <button type="submit" className="w-full rounded-xl bg-violet-600 py-2.5 text-sm font-medium text-black hover:bg-violet-500 transition active:scale-95 btn-ripple">Add Exercise</button>
+      <div className="flex items-center justify-between pt-1">
+        {onDelete ? <button type="button" onClick={onDelete} className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm text-red-300 hover:bg-red-500/10 transition active:scale-95"><Trash2 className="h-4 w-4" /> Delete</button> : <div />}
+        <button type="submit" className="rounded-xl bg-violet-600 px-5 py-2.5 text-sm font-medium text-black hover:bg-violet-500 transition active:scale-95 btn-ripple">{initial ? "Save Changes" : "Add Exercise"}</button>
+      </div>
     </form>
+  );
+}
+
+function SkipDayForm({ onSelect }: { onSelect: (reason: string, emoji: string) => void }) {
+  const [custom, setCustom] = useState("");
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl bg-amber-500/5 p-3 ring-1 ring-amber-500/15">
+        <p className="text-xs text-amber-200/80">Why are you skipping today? This marks the day as skipped and <span className="font-semibold">breaks your running streak</span> — but that's okay, life happens!</p>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        {SKIP_REASONS.filter(r => r.reason !== "Other").map((r, i) => (
+          <button key={r.reason} onClick={() => onSelect(r.reason, r.emoji)} className="flex items-center gap-2.5 rounded-xl bg-white/5 px-3 py-3 ring-1 ring-white/10 transition hover:bg-white/10 active:scale-95 anim-fade-scale" style={{ animationDelay: `${i * 40}ms` }}>
+            <span className="text-xl">{r.emoji}</span>
+            <span className="text-[13px] text-zinc-200">{r.reason}</span>
+          </button>
+        ))}
+      </div>
+      <div className="flex gap-2">
+        <input value={custom} onChange={e => setCustom(e.target.value)} placeholder="Custom reason..." className="flex-1 rounded-xl bg-black/40 px-3 py-2.5 text-sm outline-none ring-1 ring-white/10 focus:ring-amber-500/50 transition" />
+        <button onClick={() => custom.trim() && onSelect(custom, "🚫")} disabled={!custom.trim()} className="rounded-xl bg-amber-600 px-4 py-2.5 text-sm font-medium text-black hover:bg-amber-500 transition active:scale-95 disabled:opacity-40">Skip</button>
+      </div>
+    </div>
   );
 }
 
