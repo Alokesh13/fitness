@@ -4,12 +4,11 @@ import {
   Pie, PieChart, RadialBar, RadialBarChart, ResponsiveContainer, Tooltip, XAxis, YAxis
 } from "recharts";
 import {
-  Activity, AlertCircle, Apple, Award, Beef, Calendar, CalendarOff, Check, Cloud, CloudOff, CloudUpload, CloudDownload,
-  Copy, Download, Droplets, Dumbbell, Edit2, Flame, Footprints, Heart, Loader2, Moon, Plus, RotateCcw,
+  Activity, AlertCircle, Apple, Award, Beef, Calendar, CalendarOff, Check,
+  Download, Droplets, Dumbbell, Edit2, Flame, Footprints, Heart, Moon, Plus, RotateCcw,
   Save, Sun, Target, Trash2, TrendingUp, Upload, Utensils, Watch, X, Zap
 } from "lucide-react";
 import AICoach from "./AICoach";
-import { pushJournal, pullJournal, generateSyncCode } from "./utils/supabase";
 
 /* ---------- Types ---------- */
 type Workout = {
@@ -155,57 +154,6 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const notifCounter = useRef(0);
 
-  // ─── Cloud Sync ───
-  const [showCloud, setShowCloud] = useState(false);
-  const [syncCode, setSyncCode] = useState<string>(() => localStorage.getItem("alokesh-sync-code") || "");
-  const [syncing, setSyncing] = useState(false);
-  const [lastSync, setLastSync] = useState<string>(() => localStorage.getItem("alokesh-last-sync") || "");
-  const [autoSync, setAutoSync] = useState<boolean>(() => localStorage.getItem("alokesh-auto-sync") === "true");
-
-  useEffect(() => { if (syncCode) localStorage.setItem("alokesh-sync-code", syncCode); }, [syncCode]);
-  useEffect(() => { localStorage.setItem("alokesh-auto-sync", String(autoSync)); }, [autoSync]);
-
-  const doPush = async (code?: string) => {
-    const useCode = code || syncCode;
-    if (!useCode) { setImportMsg({ text: "❌ Sync code lagei! Generate or enter one.", type: "error" }); setTimeout(() => setImportMsg(null), 4000); return; }
-    setSyncing(true);
-    const res = await pushJournal(useCode, journal);
-    setSyncing(false);
-    if (res.ok) {
-      const now = new Date().toLocaleString();
-      setLastSync(now);
-      localStorage.setItem("alokesh-last-sync", now);
-      setImportMsg({ text: `☁️ Bhal! Cloud-t save korli! ${Object.keys(journal).length} din-ta uploaded.`, type: "success" });
-    } else {
-      setImportMsg({ text: `❌ Cloud save fail: ${res.error}`, type: "error" });
-    }
-    setTimeout(() => setImportMsg(null), 4500);
-  };
-
-  const doPull = async () => {
-    if (!syncCode) { setImportMsg({ text: "❌ Sync code lagei! Enter your code first.", type: "error" }); setTimeout(() => setImportMsg(null), 4000); return; }
-    setSyncing(true);
-    const res = await pullJournal(syncCode);
-    setSyncing(false);
-    if (res.ok && res.data) {
-      setJournal(res.data);
-      const now = new Date().toLocaleString();
-      setLastSync(now);
-      localStorage.setItem("alokesh-last-sync", now);
-      setShowCloud(false);
-      setImportMsg({ text: `☁️ Bhal korli! ${Object.keys(res.data).length} din-ta cloud-r pora load korli!`, type: "success" });
-    } else {
-      setImportMsg({ text: `❌ Cloud load fail: ${res.error}`, type: "error" });
-    }
-    setTimeout(() => setImportMsg(null), 4500);
-  };
-
-  const createSyncCode = () => {
-    const code = generateSyncCode();
-    setSyncCode(code);
-    doPush(code);
-  };
-
   const handleDownload = () => {
     const payload = {
       version: 1,
@@ -260,16 +208,6 @@ export default function App() {
   const day = journal[date] ?? { date, workouts: [], exercises: [], foods: [], water: [], sleepLogs: [] };
 
   useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(journal)); }, [journal]);
-
-  // Auto-sync to cloud (debounced) when enabled
-  const autoSyncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => {
-    if (!autoSync || !syncCode) return;
-    if (autoSyncTimer.current) clearTimeout(autoSyncTimer.current);
-    autoSyncTimer.current = setTimeout(() => { doPush(); }, 2500);
-    return () => { if (autoSyncTimer.current) clearTimeout(autoSyncTimer.current); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [journal, autoSync, syncCode]);
 
   const totals = useMemo(() => {
     const runKm = day.workouts.filter(w => w.type === "run" || w.type === "hike").reduce((a, b) => a + b.km, 0);
@@ -958,95 +896,6 @@ export default function App() {
         {/* Hidden file input */}
         <input ref={fileInputRef} type="file" accept="application/json,.json" className="hidden" onChange={handleUpload} />
 
-        {/* Cloud Sync Modal */}
-        {showCloud && (
-          <div className="fixed inset-0 z-50 grid place-items-end sm:place-items-center bg-black/70 p-0 sm:p-4 backdrop-blur-xl anim-overlay">
-            <div className="relative w-full sm:max-w-md overflow-hidden rounded-t-[24px] sm:rounded-[24px] border border-sky-500/20 bg-[#06121a]/95 shadow-2xl anim-modal max-h-[90vh] flex flex-col">
-              <div className="absolute -top-24 -right-24 h-48 w-48 rounded-full bg-sky-500/10 blur-3xl anim-breathe" />
-              <div className="relative flex items-center justify-between border-b border-white/5 px-5 py-3.5 flex-shrink-0">
-                <h3 className="text-[15px] font-medium flex items-center gap-2"><Cloud className="h-4 w-4 text-sky-400" /> Cloud Sync</h3>
-                <button onClick={() => setShowCloud(false)} className="rounded-lg p-1.5 text-zinc-500 hover:bg-white/5 hover:text-zinc-300 transition"><X className="h-4 w-4" /></button>
-              </div>
-              <div className="relative p-5 overflow-auto space-y-4">
-                <p className="text-xs text-zinc-400">Sync your data across all devices using a unique code. Save your code somewhere safe — anyone with it can access your data.</p>
-
-                {!syncCode ? (
-                  <div className="space-y-3">
-                    <button onClick={createSyncCode} disabled={syncing} className="btn-ripple w-full flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-sky-600 to-cyan-600 py-3 text-sm font-semibold text-black hover:from-sky-500 hover:to-cyan-500 transition active:scale-95 disabled:opacity-50">
-                      {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CloudUpload className="h-4 w-4" />} Create New Sync Code & Upload
-                    </button>
-                    <div className="flex items-center gap-2 text-[11px] text-zinc-600"><div className="flex-1 h-px bg-white/5" />OR<div className="flex-1 h-px bg-white/5" /></div>
-                    <div>
-                      <label className="text-[10px] uppercase tracking-wider text-zinc-500">Have a code already?</label>
-                      <div className="mt-1.5 flex gap-2">
-                        <input
-                          value={syncCode}
-                          onChange={e => setSyncCode(e.target.value.toUpperCase())}
-                          placeholder="ALKH-XXXX-XXXX"
-                          className="flex-1 rounded-xl bg-black/40 px-3 py-2.5 text-sm outline-none ring-1 ring-white/10 focus:ring-sky-500/50 transition font-mono"
-                        />
-                      </div>
-                      <button onClick={doPull} disabled={syncing || !syncCode} className="mt-2 btn-ripple w-full flex items-center justify-center gap-2 rounded-xl bg-violet-600/20 py-2.5 text-[13px] font-medium text-violet-300 ring-1 ring-violet-500/20 hover:bg-violet-600/30 transition active:scale-95 disabled:opacity-40">
-                        {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CloudDownload className="h-4 w-4" />} Load Data From Cloud
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {/* Sync code display */}
-                    <div className="rounded-xl bg-black/30 p-4 ring-1 ring-sky-500/20">
-                      <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">Your Sync Code</div>
-                      <div className="flex items-center justify-between gap-2">
-                        <code className="text-[18px] font-mono font-semibold text-sky-300 tracking-wider">{syncCode}</code>
-                        <button onClick={() => { navigator.clipboard?.writeText(syncCode); setImportMsg({ text: "📋 Code copied!", type: "success" }); setTimeout(() => setImportMsg(null), 2500); }} className="rounded-lg bg-white/5 p-2 hover:bg-white/10 transition active:scale-90"><Copy className="h-3.5 w-3.5 text-zinc-300" /></button>
-                      </div>
-                      {lastSync && <div className="mt-2 text-[10px] text-zinc-500">Last synced: {lastSync}</div>}
-                    </div>
-
-                    {/* Push / Pull */}
-                    <div className="grid grid-cols-2 gap-2">
-                      <button onClick={() => doPush()} disabled={syncing} className="btn-ripple flex items-center justify-center gap-1.5 rounded-xl bg-sky-600/20 py-2.5 text-[13px] font-medium text-sky-300 ring-1 ring-sky-500/20 hover:bg-sky-600/30 transition active:scale-95 disabled:opacity-40">
-                        {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CloudUpload className="h-4 w-4" />} Save to Cloud
-                      </button>
-                      <button onClick={doPull} disabled={syncing} className="btn-ripple flex items-center justify-center gap-1.5 rounded-xl bg-violet-600/20 py-2.5 text-[13px] font-medium text-violet-300 ring-1 ring-violet-500/20 hover:bg-violet-600/30 transition active:scale-95 disabled:opacity-40">
-                        {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CloudDownload className="h-4 w-4" />} Load from Cloud
-                      </button>
-                    </div>
-
-                    {/* Auto-sync toggle */}
-                    <button onClick={() => setAutoSync(!autoSync)} className="w-full flex items-center justify-between rounded-xl bg-black/20 px-4 py-3 ring-1 ring-white/5 transition hover:bg-black/30">
-                      <div className="flex items-center gap-2">
-                        <Cloud className={`h-4 w-4 ${autoSync ? "text-emerald-400" : "text-zinc-500"}`} />
-                        <div className="text-left">
-                          <div className="text-[13px] text-zinc-200">Auto-Sync</div>
-                          <div className="text-[10px] text-zinc-500">Auto-save to cloud when you log</div>
-                        </div>
-                      </div>
-                      <div className={`relative h-6 w-11 rounded-full transition ${autoSync ? "bg-emerald-500" : "bg-white/10"}`}>
-                        <div className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${autoSync ? "left-[22px]" : "left-0.5"}`} />
-                      </div>
-                    </button>
-
-                    {/* Enter different code */}
-                    <details className="group">
-                      <summary className="cursor-pointer text-[11px] text-zinc-500 hover:text-zinc-300 transition list-none">↻ Use a different sync code</summary>
-                      <div className="mt-2 flex gap-2">
-                        <input
-                          defaultValue=""
-                          onChange={e => setSyncCode(e.target.value.toUpperCase())}
-                          placeholder="ALKH-XXXX-XXXX"
-                          className="flex-1 rounded-xl bg-black/40 px-3 py-2 text-[13px] outline-none ring-1 ring-white/10 focus:ring-sky-500/50 transition font-mono"
-                        />
-                        <button onClick={doPull} className="rounded-xl bg-violet-600 px-3 py-2 text-[12px] font-medium text-white hover:bg-violet-500 transition">Load</button>
-                      </div>
-                    </details>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* Import Confirmation Modal */}
         {showImport && (
           <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 backdrop-blur-xl anim-overlay">
@@ -1085,9 +934,6 @@ export default function App() {
           {/* Data management bar */}
           <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-white/5 bg-white/[0.02] p-3">
             <span className="text-[10px] uppercase tracking-wider text-zinc-500 mr-1">Data:</span>
-            <button onClick={() => setShowCloud(true)} className="btn-ripple flex items-center gap-1.5 rounded-lg bg-sky-600/15 px-3 py-1.5 text-[11px] font-medium text-sky-300 ring-1 ring-sky-500/20 transition hover:bg-sky-600/25 active:scale-95">
-              {syncCode ? <Cloud className="h-3.5 w-3.5" /> : <CloudOff className="h-3.5 w-3.5" />} Cloud Sync {syncCode && <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />}
-            </button>
             <button onClick={handleDownload} className="btn-ripple flex items-center gap-1.5 rounded-lg bg-emerald-600/15 px-3 py-1.5 text-[11px] font-medium text-emerald-300 ring-1 ring-emerald-500/20 transition hover:bg-emerald-600/25 active:scale-95">
               <Download className="h-3.5 w-3.5" /> Download
             </button>
