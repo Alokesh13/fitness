@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Line, LineChart,
-  Pie, PieChart, RadialBar, RadialBarChart, ResponsiveContainer, Tooltip, XAxis, YAxis
+  Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, ComposedChart, Line, LineChart,
+  Pie, PieChart, PolarAngleAxis, PolarGrid, PolarRadiusAxis, Radar, RadarChart,
+  RadialBar, RadialBarChart, ResponsiveContainer, Tooltip, XAxis, YAxis
 } from "recharts";
 import {
   Activity, AlertCircle, Apple, Award, Beef, Calendar, CalendarOff, Check,
-  Download, Droplets, Dumbbell, Edit2, Flame, Footprints, Heart, Moon, Plus, RotateCcw,
-  Save, Sun, Target, Trash2, TrendingUp, Upload, Utensils, Watch, X, Zap
+  Download, Droplets, Dumbbell, Edit2, Flame, Footprints, Heart, Medal, Moon, Plus, RotateCcw,
+  Save, Sparkles, Sun, Target, Trash2, TrendingUp, Trophy, Upload, Utensils, Watch, X, Zap
 } from "lucide-react";
 import AICoach from "./AICoach";
 
@@ -376,15 +377,63 @@ export default function App() {
   const bottleFills = Math.floor(totals.waterMl / 1500);
   const bottleRemainder = totals.waterMl % 1500;
 
+  // ─── Wellness Radar (today's balance across 6 dimensions) ───
+  const radarData = useMemo(() => [
+    { metric: "Steps", value: Math.round(Math.min(100, (totals.steps / 10000) * 100)) },
+    { metric: "Water", value: Math.round(Math.min(100, (totals.waterMl / 2500) * 100)) },
+    { metric: "Run", value: Math.round(Math.min(100, (totals.totalKm / 8) * 100)) },
+    { metric: "Protein", value: Math.round(Math.min(100, (totals.protein / 100) * 100)) },
+    { metric: "Sleep", value: Math.round(Math.min(100, (totals.sleepHrs / 7) * 100)) },
+    { metric: "Strength", value: Math.round(Math.min(100, (day.exercises.length / 3) * 100)) },
+  ], [totals, day.exercises.length]);
+
+  // ─── Calories In vs Out (14 days) ───
+  const calorieData = useMemo(() => Array.from({ length: 14 }, (_, i) => {
+    const d = new Date(date); d.setDate(d.getDate() - (13 - i));
+    const iso = d.toISOString().slice(0, 10); const j = journal[iso];
+    const cin = j?.foods.reduce((a, b) => a + b.calories, 0) ?? 0;
+    const cout = (j?.workouts.reduce((a, b) => a + b.calories, 0) ?? 0) + (j?.exercises.reduce((a, b) => a + b.calories, 0) ?? 0) + (j ? 1650 : 0);
+    return { day: d.toLocaleDateString(undefined, { weekday: "short", day: "numeric" }), in: cin, out: cout, net: cin - cout };
+  }), [journal, date]);
+
+  // ─── 30-day Activity Heatmap ───
+  const heatmap = useMemo(() => Array.from({ length: 35 }, (_, i) => {
+    const d = new Date(date); d.setDate(d.getDate() - (34 - i));
+    const iso = d.toISOString().slice(0, 10); const j = journal[iso];
+    const km = j?.workouts.filter(w => w.type === "run" || w.type === "hike").reduce((a, b) => a + b.km, 0) ?? 0;
+    const skipped = !!j?.skipped;
+    return { iso, km, skipped, label: d.getDate() };
+  }), [journal, date]);
+
+  // ─── Achievements ───
+  const achievements = useMemo(() => {
+    const allDays = Object.values(journal);
+    const totalKmAll = allDays.reduce((a, j) => a + j.workouts.reduce((s, w) => s + ((w.type === "run" || w.type === "hike") ? w.km : 0), 0), 0);
+    const maxKm = Math.max(0, ...allDays.flatMap(j => j.workouts.map(w => w.km)));
+    const totalWorkouts = allDays.reduce((a, j) => a + j.workouts.length, 0);
+    const maxWater = Math.max(0, ...allDays.map(j => j.water.reduce((s, w) => s + w.amount, 0)));
+    return [
+      { id: "first", icon: "🎯", name: "First Step", desc: "Log your first workout", unlocked: totalWorkouts >= 1 },
+      { id: "streak3", icon: "🔥", name: "On Fire", desc: "3-day streak", unlocked: streak.longest >= 3 },
+      { id: "streak7", icon: "⚡", name: "Week Warrior", desc: "7-day streak", unlocked: streak.longest >= 7 },
+      { id: "km10", icon: "🏃", name: "10K Club", desc: "Run 10km in one day", unlocked: maxKm >= 10 },
+      { id: "km100", icon: "🌍", name: "Centurion", desc: "100km total distance", unlocked: totalKmAll >= 100 },
+      { id: "hydrate", icon: "💧", name: "Hydration Hero", desc: "Hit 2.5L water goal", unlocked: maxWater >= 2500 },
+      { id: "w50", icon: "💪", name: "Consistent", desc: "50 total workouts", unlocked: totalWorkouts >= 50 },
+      { id: "streak30", icon: "👑", name: "Legend", desc: "30-day streak", unlocked: streak.longest >= 30 },
+    ];
+  }, [journal, streak.longest]);
+
   return (
-    <div className="min-h-screen bg-[#030712] text-white selection:bg-emerald-500/30">
-      {/* Animated background */}
+    <div className="min-h-screen bg-[#070512] text-white selection:bg-fuchsia-500/30">
+      {/* Animated Aurora background */}
       <div className="pointer-events-none fixed inset-0">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(34,197,94,0.12),_transparent_60%),radial-gradient(ellipse_at_bottom_right,_rgba(6,182,212,0.1),_transparent_50%),radial-gradient(ellipse_at_bottom_left,_rgba(16,185,129,0.08),_transparent_50%)]" />
-        <div className="absolute inset-0 opacity-[0.03]" style={{ backgroundImage: `linear-gradient(to right, #fff 1px, transparent 1px), linear-gradient(to bottom, #fff 1px, transparent 1px)`, backgroundSize: "64px 64px" }} />
-        <div className="absolute top-[20%] left-[10%] h-64 w-64 rounded-full bg-emerald-500/5 blur-[80px] anim-float-slow" />
-        <div className="absolute top-[50%] right-[15%] h-48 w-48 rounded-full bg-cyan-500/5 blur-[60px] anim-float-slow delay-1000" />
-        <div className="absolute bottom-[20%] left-[40%] h-56 w-56 rounded-full bg-violet-500/4 blur-[70px] anim-float delay-500" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(139,92,246,0.16),_transparent_60%),radial-gradient(ellipse_at_bottom_right,_rgba(217,70,239,0.12),_transparent_55%),radial-gradient(ellipse_at_bottom_left,_rgba(34,211,238,0.1),_transparent_55%)]" />
+        <div className="absolute inset-0 opacity-[0.025]" style={{ backgroundImage: `linear-gradient(to right, #fff 1px, transparent 1px), linear-gradient(to bottom, #fff 1px, transparent 1px)`, backgroundSize: "56px 56px" }} />
+        <div className="absolute top-[12%] left-[8%] h-72 w-72 rounded-full bg-violet-500/8 blur-[90px] anim-float-slow" />
+        <div className="absolute top-[45%] right-[10%] h-64 w-64 rounded-full bg-fuchsia-500/7 blur-[80px] anim-float-slow delay-1000" />
+        <div className="absolute bottom-[15%] left-[35%] h-60 w-60 rounded-full bg-cyan-500/6 blur-[70px] anim-float delay-500" />
+        <div className="absolute top-[30%] left-[55%] h-40 w-40 rounded-full bg-indigo-500/6 blur-[60px] anim-float-slow delay-700" />
       </div>
 
       <div className="relative mx-auto max-w-[1440px] px-3 sm:px-4 py-4 sm:py-6 lg:px-8 lg:py-8">
@@ -392,13 +441,13 @@ export default function App() {
         <div className="mb-4 sm:mb-6 flex flex-wrap items-center justify-between gap-3 anim-fade-down">
           <div className="flex items-center gap-3">
             <div className="relative">
-              <div className="absolute -inset-1 rounded-2xl bg-emerald-500/20 blur-xl anim-breathe" />
-              <div className="relative flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-500 to-cyan-500 shadow-lg shadow-emerald-900/30 anim-pulse-glow">
-                <Activity className="h-6 w-6 text-black" />
+              <div className="absolute -inset-1 rounded-2xl bg-fuchsia-500/25 blur-xl anim-breathe" />
+              <div className="relative flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 via-fuchsia-500 to-cyan-400 shadow-lg shadow-fuchsia-900/40 anim-pulse-glow">
+                <Activity className="h-6 w-6 text-white" />
               </div>
             </div>
             <div>
-              <h1 className="text-[18px] sm:text-[22px] font-semibold tracking-tight bg-gradient-to-r from-white via-emerald-200 to-cyan-200 bg-clip-text text-transparent anim-gradient-shift" style={{ backgroundSize: "200% 200%" }}>AlokeshFitness</h1>
+              <h1 className="text-[18px] sm:text-[22px] font-bold tracking-tight bg-gradient-to-r from-violet-200 via-fuchsia-200 to-cyan-200 bg-clip-text text-transparent anim-gradient-shift" style={{ backgroundSize: "200% 200%" }}>AlokeshFitness</h1>
               <p className="text-[10px] sm:text-xs text-zinc-400 -mt-1">Your Personal Health Journal</p>
             </div>
           </div>
@@ -415,13 +464,13 @@ export default function App() {
             </div>
             <button onClick={() => setDate(todayISO())} className="btn-ripple rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm transition hover:bg-white/10 hover:border-white/20 active:scale-95">Today</button>
             {!day.finished && (
-              <button onClick={() => setShowFinish(true)} className="group relative overflow-hidden rounded-xl bg-gradient-to-r from-emerald-600 to-cyan-600 px-4 py-2 text-sm font-medium shadow-lg shadow-emerald-900/25 transition hover:shadow-emerald-900/40 active:scale-95 anim-pulse-glow">
+              <button onClick={() => setShowFinish(true)} className="group relative overflow-hidden rounded-xl bg-gradient-to-r from-violet-600 via-fuchsia-600 to-violet-600 px-4 py-2 text-sm font-medium shadow-lg shadow-fuchsia-900/30 transition hover:shadow-fuchsia-900/50 active:scale-95 anim-pulse-glow">
                 <span className="relative z-10 flex items-center gap-1.5"><Check className="h-4 w-4" /> Finish Day</span>
                 <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-white/0 via-white/20 to-white/0 transition group-hover:translate-x-full duration-700" />
               </button>
             )}
             {day.finished && (
-              <div className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-300 anim-fade-scale">
+              <div className="flex items-center gap-2 rounded-xl border border-fuchsia-500/30 bg-fuchsia-500/10 px-3 py-2 text-sm text-fuchsia-300 anim-fade-scale">
                 <Award className="h-4 w-4 anim-float" /> Day Complete • {day.rating}/100
               </div>
             )}
@@ -433,7 +482,7 @@ export default function App() {
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.03] px-3 sm:px-4 py-2 backdrop-blur">
               <span className="text-[10px] uppercase tracking-wider text-zinc-500">Today</span>
-              <span className="text-[14px] sm:text-[15px] font-semibold text-emerald-300">{totals.totalKm.toFixed(1)} km</span>
+              <span className="text-[14px] sm:text-[15px] font-semibold text-fuchsia-300">{totals.totalKm.toFixed(1)} km</span>
               <span className="text-zinc-700">|</span>
               <span className="text-[12px] sm:text-[13px] text-zinc-400">{totals.steps.toLocaleString()} steps</span>
               <span className="text-zinc-700">|</span>
@@ -441,7 +490,7 @@ export default function App() {
               <span className="text-zinc-700">|</span>
               <span className="text-[13px] text-zinc-400">{(totals.waterMl/1000).toFixed(1)}L water</span>
             </div>
-            <button onClick={() => setShowStats(!showStats)} className={`rounded-xl border px-3 py-2.5 text-sm transition active:scale-95 ${showStats ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300" : "border-white/10 bg-white/5 text-zinc-400 hover:bg-white/10 hover:text-zinc-300"}`}>
+            <button onClick={() => setShowStats(!showStats)} className={`rounded-xl border px-3 py-2.5 text-sm transition active:scale-95 ${showStats ? "border-fuchsia-500/30 bg-fuchsia-500/10 text-fuchsia-300" : "border-white/10 bg-white/5 text-zinc-400 hover:bg-white/10 hover:text-zinc-300"}`}>
               {showStats ? "Hide Totals" : "Show Totals"}
             </button>
             {!day.skipped && (
@@ -472,15 +521,15 @@ export default function App() {
         <div className="grid grid-cols-12 gap-5">
           {/* Main Chart */}
           <div className={`${showStats ? "col-span-12 xl:col-span-8" : "col-span-12"} anim-fade-up delay-100`}>
-            <div className="relative overflow-hidden rounded-[28px] border border-emerald-900/30 bg-[#05130a]/70 p-5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04),0_20px_60px_-30px_rgba(16,185,129,0.5)] backdrop-blur-xl card-hover anim-shimmer">
-              <div className="pointer-events-none absolute -top-24 -right-24 h-64 w-64 rounded-full bg-emerald-500/10 blur-3xl anim-breathe" />
+            <div className="relative overflow-hidden rounded-[28px] border border-violet-500/20 bg-[#0c0818]/70 p-5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04),0_20px_60px_-30px_rgba(139,92,246,0.5)] backdrop-blur-xl card-hover anim-shimmer">
+              <div className="pointer-events-none absolute -top-24 -right-24 h-64 w-64 rounded-full bg-fuchsia-500/10 blur-3xl anim-breathe" />
               <div className="mb-4 flex items-center justify-between">
                 <div>
                   <h2 className="text-[15px] font-medium text-zinc-200">Activity Overview</h2>
                   <p className="text-xs text-zinc-500">Running vs Walking • Last 14 days</p>
                 </div>
                 <div className="flex items-center gap-4 text-xs">
-                  <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-[#4ade80] shadow-[0_0_10px_rgba(74,222,128,0.5)] animate-pulse" /> Running (km)</span>
+                  <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-[#d946ef] shadow-[0_0_10px_rgba(217,70,239,0.5)] animate-pulse" /> Running (km)</span>
                   <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-[#22d3ee] shadow-[0_0_10px_rgba(34,211,238,0.5)] animate-pulse" /> Walking (km)</span>
                 </div>
               </div>
@@ -488,15 +537,15 @@ export default function App() {
                 <ResponsiveContainer>
                   <AreaChart data={last14} margin={{ left: 0, right: 10, top: 10, bottom: 0 }}>
                     <defs>
-                      <linearGradient id="gRun" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#4ade80" stopOpacity={0.5} /><stop offset="100%" stopColor="#4ade80" stopOpacity={0} /></linearGradient>
+                      <linearGradient id="gRun" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#d946ef" stopOpacity={0.5} /><stop offset="100%" stopColor="#d946ef" stopOpacity={0} /></linearGradient>
                       <linearGradient id="gWalk" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#22d3ee" stopOpacity={0.45} /><stop offset="100%" stopColor="#22d3ee" stopOpacity={0} /></linearGradient>
                     </defs>
                     <CartesianGrid stroke="rgba(255,255,255,0.06)" vertical={false} />
                     <XAxis dataKey="day" tick={{ fill: "#71717a", fontSize: 11 }} axisLine={false} tickLine={false} />
                     <YAxis tick={{ fill: "#71717a", fontSize: 11 }} axisLine={false} tickLine={false} width={35} label={{ value: "Distance (km)", angle: -90, position: "insideLeft", fill: "#52525b", fontSize: 11 }} />
-                    <Tooltip contentStyle={{ background: "#030712", border: "1px solid rgba(74,222,128,0.2)", borderRadius: 12, boxShadow: "0 10px 40px rgba(0,0,0,0.5)" }} labelStyle={{ color: "#e4e4e7" }} itemStyle={{ color: "#a1a1aa", fontSize: 12 }} formatter={(v: any, n: any) => [`${v} km`, n === "run" ? "Running" : "Walking"]} />
-                    <Area type="monotone" dataKey="run" stroke="#4ade80" strokeWidth={2.5} fill="url(#gRun)" dot={{ r: 3, strokeWidth: 2, fill: "#030712" }} activeDot={{ r: 5 }} animationDuration={1200} animationEasing="ease-out" />
-                    <Area type="monotone" dataKey="walk" stroke="#22d3ee" strokeWidth={2.5} fill="url(#gWalk)" dot={{ r: 3, strokeWidth: 2, fill: "#030712" }} activeDot={{ r: 5 }} animationDuration={1500} animationEasing="ease-out" />
+                    <Tooltip contentStyle={{ background: "#0c0818", border: "1px solid rgba(217,70,239,0.2)", borderRadius: 12, boxShadow: "0 10px 40px rgba(0,0,0,0.5)" }} labelStyle={{ color: "#e4e4e7" }} itemStyle={{ color: "#a1a1aa", fontSize: 12 }} formatter={(v: any, n: any) => [`${v} km`, n === "run" ? "Running" : "Walking"]} />
+                    <Area type="monotone" dataKey="run" stroke="#d946ef" strokeWidth={2.5} fill="url(#gRun)" dot={{ r: 3, strokeWidth: 2, fill: "#0c0818" }} activeDot={{ r: 5 }} animationDuration={1200} animationEasing="ease-out" />
+                    <Area type="monotone" dataKey="walk" stroke="#22d3ee" strokeWidth={2.5} fill="url(#gWalk)" dot={{ r: 3, strokeWidth: 2, fill: "#0c0818" }} activeDot={{ r: 5 }} animationDuration={1500} animationEasing="ease-out" />
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
@@ -848,7 +897,7 @@ export default function App() {
                       <XAxis dataKey="day" tick={{ fill: "#71717a", fontSize: 11 }} axisLine={false} />
                       <YAxis tick={{ fill: "#71717a", fontSize: 11 }} axisLine={false} width={40} />
                       <Tooltip contentStyle={{ background: "#030712", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8 }} />
-                      <Line type="monotone" dataKey="steps" stroke="#4ade80" strokeWidth={2.5} dot={false} animationDuration={1800} animationEasing="ease-out" />
+                      <Line type="monotone" dataKey="steps" stroke="#a855f7" strokeWidth={2.5} dot={false} animationDuration={1800} animationEasing="ease-out" />
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
@@ -876,6 +925,130 @@ export default function App() {
                       </div>
                     ))}
                   </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* ─── ADVANCED ANALYTICS ─── */}
+          <div className="col-span-12">
+            <div className="flex items-center gap-2 mb-1 mt-2">
+              <Sparkles className="h-4 w-4 text-fuchsia-400" />
+              <h3 className="text-[15px] font-semibold bg-gradient-to-r from-violet-200 to-fuchsia-200 bg-clip-text text-transparent">Advanced Analytics</h3>
+            </div>
+          </div>
+
+          {/* Wellness Radar + Calorie Composed */}
+          <div className="col-span-12 grid grid-cols-12 gap-5">
+            <div className="col-span-12 lg:col-span-5 anim-fade-up">
+              <div className="h-full rounded-[24px] border border-violet-500/15 bg-[#0c0818]/70 p-5 backdrop-blur-xl card-hover">
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-[14px] font-medium flex items-center gap-2"><Target className="h-4 w-4 text-fuchsia-400" /> Wellness Balance</h4>
+                  <span className="text-[11px] text-zinc-500">Today</span>
+                </div>
+                <div className="h-[240px]">
+                  <ResponsiveContainer>
+                    <RadarChart data={radarData} outerRadius="72%">
+                      <defs>
+                        <linearGradient id="radarFill" x1="0" y1="0" x2="1" y2="1">
+                          <stop offset="0%" stopColor="#a855f7" stopOpacity={0.6} />
+                          <stop offset="100%" stopColor="#22d3ee" stopOpacity={0.4} />
+                        </linearGradient>
+                      </defs>
+                      <PolarGrid stroke="rgba(255,255,255,0.08)" />
+                      <PolarAngleAxis dataKey="metric" tick={{ fill: "#a1a1aa", fontSize: 11 }} />
+                      <PolarRadiusAxis domain={[0, 100]} tick={false} axisLine={false} />
+                      <Radar dataKey="value" stroke="#d946ef" strokeWidth={2} fill="url(#radarFill)" animationDuration={1200} />
+                      <Tooltip contentStyle={{ background: "#0c0818", border: "1px solid rgba(217,70,239,0.3)", borderRadius: 10 }} formatter={(v: any) => [`${v}%`, "Score"]} />
+                    </RadarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </div>
+            <div className="col-span-12 lg:col-span-7 anim-fade-up delay-100">
+              <div className="h-full rounded-[24px] border border-white/5 bg-[#0c0818]/70 p-5 backdrop-blur-xl card-hover anim-shimmer">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-[14px] font-medium flex items-center gap-2"><Flame className="h-4 w-4 text-orange-400" /> Calories In vs Out</h4>
+                  <div className="flex items-center gap-3 text-[11px]">
+                    <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-cyan-400" /> In</span>
+                    <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-fuchsia-400" /> Out</span>
+                    <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-400" /> Net</span>
+                  </div>
+                </div>
+                <div className="h-[240px]">
+                  <ResponsiveContainer>
+                    <ComposedChart data={calorieData} margin={{ left: -10, right: 5, top: 5, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="calIn" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#22d3ee" stopOpacity={0.8} /><stop offset="100%" stopColor="#22d3ee" stopOpacity={0.3} /></linearGradient>
+                        <linearGradient id="calOut" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#d946ef" stopOpacity={0.8} /><stop offset="100%" stopColor="#d946ef" stopOpacity={0.3} /></linearGradient>
+                      </defs>
+                      <CartesianGrid stroke="rgba(255,255,255,0.05)" vertical={false} />
+                      <XAxis dataKey="day" tick={{ fill: "#71717a", fontSize: 10 }} axisLine={false} tickLine={false} interval={1} />
+                      <YAxis tick={{ fill: "#71717a", fontSize: 10 }} axisLine={false} tickLine={false} width={45} />
+                      <Tooltip contentStyle={{ background: "#0c0818", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10 }} />
+                      <Bar dataKey="in" fill="url(#calIn)" radius={[4, 4, 0, 0]} animationDuration={1000} />
+                      <Bar dataKey="out" fill="url(#calOut)" radius={[4, 4, 0, 0]} animationDuration={1200} />
+                      <Line type="monotone" dataKey="net" stroke="#fbbf24" strokeWidth={2} dot={false} animationDuration={1500} />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* 30-day Heatmap + Achievements */}
+          <div className="col-span-12 grid grid-cols-12 gap-5">
+            <div className="col-span-12 lg:col-span-5 anim-fade-up delay-150">
+              <div className="h-full rounded-[24px] border border-white/5 bg-[#0c0818]/70 p-5 backdrop-blur-xl card-hover">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-[14px] font-medium flex items-center gap-2"><Calendar className="h-4 w-4 text-cyan-400" /> Run Heatmap</h4>
+                  <span className="text-[11px] text-zinc-500">Last 5 weeks</span>
+                </div>
+                <div className="grid grid-cols-7 gap-1.5">
+                  {["S","M","T","W","T","F","S"].map((d, i) => (
+                    <div key={i} className="text-center text-[9px] text-zinc-600 mb-0.5">{d}</div>
+                  ))}
+                  {heatmap.map((h, i) => {
+                    const intensity = h.skipped ? "skip" : h.km === 0 ? 0 : h.km < 3 ? 1 : h.km < 6 ? 2 : h.km < 10 ? 3 : 4;
+                    const bg = h.skipped ? "bg-amber-500/30 ring-amber-500/40"
+                      : intensity === 0 ? "bg-white/[0.03] ring-white/5"
+                      : intensity === 1 ? "bg-fuchsia-500/25 ring-fuchsia-500/20"
+                      : intensity === 2 ? "bg-fuchsia-500/45 ring-fuchsia-500/30"
+                      : intensity === 3 ? "bg-fuchsia-500/65 ring-fuchsia-500/40"
+                      : "bg-fuchsia-400/90 ring-fuchsia-400/50";
+                    return (
+                      <div key={i} className={`group relative aspect-square rounded-md ring-1 ${bg} transition-all hover:scale-110 cursor-default anim-fade-scale`} style={{ animationDelay: `${i * 15}ms` }} title={`${h.iso}: ${h.skipped ? "Skipped" : h.km.toFixed(1) + "km"}`}>
+                        <span className="absolute inset-0 grid place-items-center text-[8px] text-white/40">{h.label}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="mt-3 flex items-center justify-end gap-1 text-[9px] text-zinc-500">
+                  <span>Less</span>
+                  <span className="h-2.5 w-2.5 rounded-sm bg-white/[0.03]" />
+                  <span className="h-2.5 w-2.5 rounded-sm bg-fuchsia-500/25" />
+                  <span className="h-2.5 w-2.5 rounded-sm bg-fuchsia-500/45" />
+                  <span className="h-2.5 w-2.5 rounded-sm bg-fuchsia-500/65" />
+                  <span className="h-2.5 w-2.5 rounded-sm bg-fuchsia-400/90" />
+                  <span>More</span>
+                </div>
+              </div>
+            </div>
+            <div className="col-span-12 lg:col-span-7 anim-fade-up delay-200">
+              <div className="h-full rounded-[24px] border border-white/5 bg-[#0c0818]/70 p-5 backdrop-blur-xl card-hover">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-[14px] font-medium flex items-center gap-2"><Trophy className="h-4 w-4 text-amber-400" /> Achievements</h4>
+                  <span className="text-[11px] text-zinc-500">{achievements.filter(a => a.unlocked).length}/{achievements.length} unlocked</span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  {achievements.map((a, i) => (
+                    <div key={a.id} className={`relative rounded-2xl p-3 text-center ring-1 transition-all anim-fade-scale ${a.unlocked ? "bg-gradient-to-br from-amber-500/15 to-fuchsia-500/10 ring-amber-500/25" : "bg-white/[0.02] ring-white/5 opacity-50 grayscale"}`} style={{ animationDelay: `${i * 60}ms` }} title={a.desc}>
+                      <div className={`text-2xl mb-1 ${a.unlocked ? "anim-float" : ""}`}>{a.icon}</div>
+                      <div className={`text-[11px] font-medium ${a.unlocked ? "text-amber-200" : "text-zinc-500"}`}>{a.name}</div>
+                      <div className="text-[9px] text-zinc-500 mt-0.5 leading-tight">{a.desc}</div>
+                      {a.unlocked && <div className="absolute top-1.5 right-1.5"><Medal className="h-3 w-3 text-amber-400" /></div>}
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
